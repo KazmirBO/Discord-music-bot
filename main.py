@@ -196,8 +196,8 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
             )
             await ctx.send(embed=embed)
             music_loop.start(ctx)
-        except Exception:
-            print(f"Wystąpił błąd: {Exception}")
+        except Exception as err:
+            print(f"Wystąpił błąd: {err=}, {type(err)=}")
     else:
         await vc.disconnect()
 

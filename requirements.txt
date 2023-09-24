@@ -1,0 +1,6 @@
+yt_dlp
+discord
+python-dotenv
+pynacl
+ffmpeg
+datetime
