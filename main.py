@@ -1,3 +1,6 @@
+from logging import info
+from logging import info
+
 #!/usr/bin/env python3
 
 import datetime
@@ -151,6 +154,56 @@ async def play(ctx, url: str) -> None:
             await play_next(ctx, vc)
     else:
         await ctx.send("Najpierw dołącz do kanału głosowego.")
+
+
+@bot.command()
+async def search(ctx, *url: str) -> None:
+    vs = ctx.author.voice
+    await ctx.channel.purge(limit=1)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        wiad = ""
+        for i in url:
+            wiad += i + " "
+        info = ydl.extract_info(f"ytsearch5:'{wiad}'", download=True)
+    # print(info["entries"][0]["id"])
+    username = ctx.message.author.display_name
+    embed = discord.Embed(
+        title="Wybierz link interesującego ciebie utworu:",  # type: ignore
+        color=discord.Colour.random(),
+    )
+    embed.add_field(
+        name="Kto dodał",
+        value=username,
+        inline=True,
+    )
+    for i in info["entries"]:
+        embed.add_field(
+            name=i["title"],
+            value="https://www.youtube.com/watch?v="+i["id"],
+            inline=False,
+        )
+    await ctx.send(embed=embed)
+    # if vs:
+    #     voice_channel = vs.channel
+    #     if not ctx.voice_client:
+    #         vc = await voice_channel.connect()
+    #     else:
+    #         vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    #     Queue.append(
+    #         {
+    #             "url": url,
+    #             "url2": info["url"],  # type: ignore
+    #             "title": info["title"],  # type: ignore
+    #             "uploader": info["uploader"],  # type: ignore
+    #             "duration": info["duration"],  # type: ignore
+    #             "id": info["id"],  # type: ignore
+    #             "user": username,
+    #         }
+    #     )
+    #     if not vc.is_playing():  # type: ignore
+    #         await play_next(ctx, vc)
+    # else:
+    #     await ctx.send("Najpierw dołącz do kanału głosowego.")
 
 
 @tasks.loop(seconds=5.0)
