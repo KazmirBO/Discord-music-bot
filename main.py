@@ -83,8 +83,21 @@ Queue = {}
 
 ydl_opts = {
     "format": "bestaudio[ext=webm]/best",
+    "outtmpl": "downloads/%(id)s.%(ext)s",
+    "restrictfilenames": True,
     "noplaylist": True,
-    "outtmpl": "%(id)s.%(ext)s",
+    "nocheckcertificate": True,
+    "ignoreerrors": False,
+    "logtostderr": False,
+    "quiet": True,
+    "no_warnings": True,
+    "default_search": "auto",
+    "source_address": "0.0.0.0",  # ipv6 addresses cause issues sometimes
+}
+
+ffmpegopts = {
+    "before_options": "-nostdin",
+    "options": "-vn",
 }
 
 
@@ -93,6 +106,13 @@ def is_youtube_link(text):
         r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$"
     )
     return youtube_link_pattern.match(text) is not None
+
+
+def is_youtube_playlist_link(text):
+    youtube_playlist_pattern = re.compile(
+        r"(https?://)?(www\.)?(youtube\.com/playlist\?list=|youtu\.be/)([A-Za-z0-9_-]+)$"
+    )
+    return youtube_playlist_pattern.match(text) is not None
 
 
 @bot.event
@@ -125,76 +145,79 @@ async def play(ctx, *, url: str) -> None:
     ident = ctx.message.guild.id
     vs = ctx.author.voice
     await ctx.channel.purge(limit=1)
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        if is_youtube_link(url):
-            info = ydl.extract_info(url, download=True)
+    if not is_youtube_playlist_link(url):
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            if is_youtube_link(url):
+                info = ydl.extract_info(url, download=True)
+            else:
+                info = ydl.extract_info(f"ytsearch:'{url}'", download=True)[
+                    "entries"
+                ][0]
+        embed = discord.Embed(
+            title=f"Dodano: {info['title']}",  # type: ignore
+            color=discord.Colour.random(),
+        )
+        embed.add_field(
+            name="Kto dodał",
+            value=username,
+            inline=True,
+        )
+        embed.add_field(
+            name="Uploader",
+            value=info["uploader"],  # type: ignore
+            inline=True,
+        )
+        embed.add_field(
+            name="Czas trwania",
+            value=str(
+                datetime.timedelta(
+                    seconds=int(info["duration"]),  # type: ignore
+                )
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="URL",
+            value=url,
+            inline=False,
+        )
+        await ctx.send(embed=embed)
+        if vs:
+            voice_channel = vs.channel
+            if not ctx.voice_client:
+                vc = await voice_channel.connect()
+            else:
+                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+            if ident in Queue:
+                Queue[ident].append(
+                    {
+                        "url": url,
+                        "url2": info["url"],  # type: ignore
+                        "title": info["title"],  # type: ignore
+                        "uploader": info["uploader"],  # type: ignore
+                        "duration": info["duration"],  # type: ignore
+                        "id": info["id"],  # type: ignore
+                        "user": username,
+                    }
+                )
+            else:
+                Queue[ident] = [
+                    {
+                        "url": url,
+                        "url2": info["url"],  # type: ignore
+                        "title": info["title"],  # type: ignore
+                        "uploader": info["uploader"],  # type: ignore
+                        "duration": info["duration"],  # type: ignore
+                        "id": info["id"],  # type: ignore
+                        "user": username,
+                    }
+                ]
+            if not vc.is_playing():  # type: ignore
+                await play_next(ctx, vc)
         else:
-            info = ydl.extract_info(f"ytsearch:'{url}'", download=True)[
-                "entries"
-            ][0]
-    embed = discord.Embed(
-        title=f"Dodano: {info['title']}",  # type: ignore
-        color=discord.Colour.random(),
-    )
-    embed.add_field(
-        name="Kto dodał",
-        value=username,
-        inline=True,
-    )
-    embed.add_field(
-        name="Uploader",
-        value=info["uploader"],  # type: ignore
-        inline=True,
-    )
-    embed.add_field(
-        name="Czas trwania",
-        value=str(
-            datetime.timedelta(
-                seconds=int(info["duration"]),  # type: ignore
-            )
-        ),
-        inline=True,
-    )
-    embed.add_field(
-        name="URL",
-        value=url,
-        inline=False,
-    )
-    await ctx.send(embed=embed)
-    if vs:
-        voice_channel = vs.channel
-        if not ctx.voice_client:
-            vc = await voice_channel.connect()
-        else:
-            vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-        if ident in Queue:
-            Queue[ident].append(
-                {
-                    "url": url,
-                    "url2": info["url"],  # type: ignore
-                    "title": info["title"],  # type: ignore
-                    "uploader": info["uploader"],  # type: ignore
-                    "duration": info["duration"],  # type: ignore
-                    "id": info["id"],  # type: ignore
-                    "user": username,
-                }
-            )
-        else:
-            Queue[ident] = [
-                {
-                    "url": url,
-                    "url2": info["url"],  # type: ignore
-                    "title": info["title"],  # type: ignore
-                    "uploader": info["uploader"],  # type: ignore
-                    "duration": info["duration"],  # type: ignore
-                    "id": info["id"],  # type: ignore
-                    "user": username,
-                }
-            ]
-        if not vc.is_playing():  # type: ignore
-            await play_next(ctx, vc)
+            await ctx.send("Najpierw dołącz do kanału głosowego.")
     else:
-        await ctx.send("Najpierw dołącz do kanału głosowego.")
+        await ctx.send("Przepraszamy, ale playlisty nie są wspierane.")
 
 
 @bot.command(pass_context=True)
@@ -221,32 +244,10 @@ async def search(ctx, *, url: str) -> None:
             inline=False,
         )
     await ctx.send(embed=embed)
-    # if vs:
-    #     voice_channel = vs.channel
-    #     if not ctx.voice_client:
-    #         vc = await voice_channel.connect()
-    #     else:
-    #         vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    #     Queue.append(
-    #         {
-    #             "url": url,
-    #             "url2": info["url"],  # type: ignore
-    #             "title": info["title"],  # type: ignore
-    #             "uploader": info["uploader"],  # type: ignore
-    #             "duration": info["duration"],  # type: ignore
-    #             "id": info["id"],  # type: ignore
-    #             "user": username,
-    #         }
-    #     )
-    #     if not vc.is_playing():  # type: ignore
-    #         await play_next(ctx, vc)
-    # else:
-    #     await ctx.send("Najpierw dołącz do kanału głosowego.")
 
 
 @tasks.loop(seconds=5.0)
 async def music_loop(ctx):
-    print("Loop")
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if not vc.is_playing() and vc:  # type: ignore
         await play_next(ctx, vc)
