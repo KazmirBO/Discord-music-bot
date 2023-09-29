@@ -178,7 +178,7 @@ async def play(ctx, *, url: str) -> None:
         )
         embed.add_field(
             name="URL",
-            value=url,
+            value=f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
             inline=False,
         )
         await ctx.send(embed=embed)
@@ -191,8 +191,7 @@ async def play(ctx, *, url: str) -> None:
             if ident in Queue:
                 Queue[ident].append(
                     {
-                        "url": url,
-                        "url2": info["url"],  # type: ignore
+                        "url": f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
                         "title": info["title"],  # type: ignore
                         "uploader": info["uploader"],  # type: ignore
                         "duration": info["duration"],  # type: ignore
@@ -203,8 +202,7 @@ async def play(ctx, *, url: str) -> None:
             else:
                 Queue[ident] = [
                     {
-                        "url": url,
-                        "url2": info["url"],  # type: ignore
+                        "url": f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
                         "title": info["title"],  # type: ignore
                         "uploader": info["uploader"],  # type: ignore
                         "duration": info["duration"],  # type: ignore
@@ -282,7 +280,7 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
             )
             embed.add_field(
                 name="URL",
-                value=info["url"],
+                value=f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
                 inline=False,
             )
             await ctx.send(embed=embed)
@@ -323,7 +321,7 @@ async def queue(ctx) -> None:
                     info["title"],
                     info["uploader"],
                     date,
-                    info["url"],
+                    f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
                 ),
                 inline=False,
             )
