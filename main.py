@@ -259,7 +259,7 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
         print(Queue)
         info = Queue[ident].pop(pos)
         try:
-            vc.play(discord.FFmpegPCMAudio(f"./{info['id']}.webm"))
+            vc.play(discord.FFmpegPCMAudio(f"./downloads/{info['id']}.webm"))
             embed = discord.Embed(
                 title=f"Teraz odtwarzane: {info['title']}",
                 color=discord.Colour.random(),
