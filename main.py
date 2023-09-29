@@ -38,13 +38,18 @@ man_page = [
         True,
     ],
     [
+        "+search <tytuł utworu>",
+        "Zwraca 5 tytułów i linków do podanego <tytuł utworu>",
+        True,
+    ],
+    [
         "+pause",
         "Wstrzymuje/Wznawia utwór",
         True,
     ],
     [
-        "+skip",
-        "Odtwarza następny utwór z kolejki",
+        "+skip <numer>",
+        "Odtwarza następny utwór/podany <numer> z kolejki",
         True,
     ],
     [
