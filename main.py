@@ -125,74 +125,76 @@ async def play(ctx, *, url: str) -> None:
     ident = ctx.message.guild.id
     vs = ctx.author.voice
     await ctx.channel.purge(limit=1)
-    if is_youtube_link(url):
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        if is_youtube_link(url):
             info = ydl.extract_info(url, download=True)
-        embed = discord.Embed(
-            title=f"Dodano: {info['title']}",  # type: ignore
-            color=discord.Colour.random(),
-        )
-        embed.add_field(
-            name="Kto dodał",
-            value=username,
-            inline=True,
-        )
-        embed.add_field(
-            name="Uploader",
-            value=info["uploader"],  # type: ignore
-            inline=True,
-        )
-        embed.add_field(
-            name="Czas trwania",
-            value=str(
-                datetime.timedelta(
-                    seconds=int(info["duration"]),  # type: ignore
-                )
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="URL",
-            value=url,
-            inline=False,
-        )
-        await ctx.send(embed=embed)
-        if vs:
-            voice_channel = vs.channel
-            if not ctx.voice_client:
-                vc = await voice_channel.connect()
-            else:
-                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-            if ident in Queue:
-                Queue[ident].append(
-                    {
-                        "url": url,
-                        "url2": info["url"],  # type: ignore
-                        "title": info["title"],  # type: ignore
-                        "uploader": info["uploader"],  # type: ignore
-                        "duration": info["duration"],  # type: ignore
-                        "id": info["id"],  # type: ignore
-                        "user": username,
-                    }
-                )
-            else:
-                Queue[ident] = [
-                    {
-                        "url": url,
-                        "url2": info["url"],  # type: ignore
-                        "title": info["title"],  # type: ignore
-                        "uploader": info["uploader"],  # type: ignore
-                        "duration": info["duration"],  # type: ignore
-                        "id": info["id"],  # type: ignore
-                        "user": username,
-                    }
-                ]
-            if not vc.is_playing():  # type: ignore
-                await play_next(ctx, vc)
         else:
-            await ctx.send("Najpierw dołącz do kanału głosowego.")
+            info = ydl.extract_info(f"ytsearch:'{url}'", download=True)[
+                "entries"
+            ][0]
+    embed = discord.Embed(
+        title=f"Dodano: {info['title']}",  # type: ignore
+        color=discord.Colour.random(),
+    )
+    embed.add_field(
+        name="Kto dodał",
+        value=username,
+        inline=True,
+    )
+    embed.add_field(
+        name="Uploader",
+        value=info["uploader"],  # type: ignore
+        inline=True,
+    )
+    embed.add_field(
+        name="Czas trwania",
+        value=str(
+            datetime.timedelta(
+                seconds=int(info["duration"]),  # type: ignore
+            )
+        ),
+        inline=True,
+    )
+    embed.add_field(
+        name="URL",
+        value=url,
+        inline=False,
+    )
+    await ctx.send(embed=embed)
+    if vs:
+        voice_channel = vs.channel
+        if not ctx.voice_client:
+            vc = await voice_channel.connect()
+        else:
+            vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+        if ident in Queue:
+            Queue[ident].append(
+                {
+                    "url": url,
+                    "url2": info["url"],  # type: ignore
+                    "title": info["title"],  # type: ignore
+                    "uploader": info["uploader"],  # type: ignore
+                    "duration": info["duration"],  # type: ignore
+                    "id": info["id"],  # type: ignore
+                    "user": username,
+                }
+            )
+        else:
+            Queue[ident] = [
+                {
+                    "url": url,
+                    "url2": info["url"],  # type: ignore
+                    "title": info["title"],  # type: ignore
+                    "uploader": info["uploader"],  # type: ignore
+                    "duration": info["duration"],  # type: ignore
+                    "id": info["id"],  # type: ignore
+                    "user": username,
+                }
+            ]
+        if not vc.is_playing():  # type: ignore
+            await play_next(ctx, vc)
     else:
-        await ctx.send("Proszę podać poprawny URL!")
+        await ctx.send("Najpierw dołącz do kanału głosowego.")
 
 
 @bot.command(pass_context=True)
