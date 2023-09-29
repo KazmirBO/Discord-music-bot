@@ -222,11 +222,9 @@ async def play(ctx, *, url: str) -> None:
 
 @bot.command(pass_context=True)
 async def search(ctx, *, url: str) -> None:
-    # vs = ctx.author.voice
     await ctx.channel.purge(limit=1)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch5:'{url}'", download=False)
-    # print(info["entries"][0]["id"])
     username = ctx.message.author.display_name
     embed = discord.Embed(
         title="Wybierz link interesującego ciebie utworu:",  # type: ignore
@@ -256,7 +254,6 @@ async def music_loop(ctx):
 async def play_next(ctx, vc, pos: int = 0) -> None:
     ident = ctx.message.guild.id
     if Queue[ident] != []:
-        print(Queue)
         info = Queue[ident].pop(pos)
         try:
             vc.play(discord.FFmpegPCMAudio(f"./downloads/{info['id']}.webm"))
