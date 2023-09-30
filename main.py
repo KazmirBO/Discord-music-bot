@@ -138,8 +138,8 @@ def get_yt_info(url: str):
     return ydl.extract_info(url, download=True)
 
 
-def get_ytsearch_info(url: str):
-    return ydl.extract_info(f"ytsearch:'{url}'", download=True)
+def get_ytsearch_info(url: str, ilosc: str = ""):
+    return ydl.extract_info(f"ytsearch{ilosc}:'{url}'", download=True)
 
 
 def track_embed(text: str, info: list, username: str = ""):
@@ -313,7 +313,7 @@ async def play(ctx, *, url: str) -> None:
 )
 async def find(ctx, *, url: str) -> None:
     await ctx.channel.purge(limit=1)
-    info = get_ytsearch_info(url=url)["entries"]  # type: ignore
+    info = get_ytsearch_info(url=url, ilosc="5")["entries"]  # type: ignore
     username = ctx.message.author.display_name
     embed = discord.Embed(
         title="Wybierz link interesującego ciebie utworu:",  # type: ignore
