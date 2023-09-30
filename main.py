@@ -30,52 +30,52 @@ man_page = [
     [
         "+man/manual/help/pomoc/h",
         "Wyświetla to okno pomocy",
-        True,
+        False,
     ],
     [
         "+play/graj/odtwórz/p <url>/<tytuł utworu>",
         "Odtwarza utwór z podanego <url> albo dodaje go do kolejki",
-        True,
+        False,
     ],
     [
         "+find/szukaj/przeszukaj/search/f <tytuł utworu>",
         "Zwraca 5 tytułów i linków do podanego <tytuł utworu>",
-        True,
+        False,
     ],
     [
         "+pause/pauza/wstrzymaj/w/ww",
         "Wstrzymuje/Wznawia utwór",
-        True,
+        False,
     ],
     [
         "+skip/pomiń/następny/s/n <numer>",
         "Odtwarza następny utwór/podany <numer> z kolejki",
-        True,
+        False,
     ],
     [
         "+queue/kolejka/q/k",
         "Wyświetla kolejkę odtwarzania",
-        True,
+        False,
     ],
     [
         "+stop/zatrzymaj/z",
         "Zatrzymuje odtwarzanie i czyści kolejkę",
-        True,
+        False,
     ],
     [
         "+disconnect/rozłącz/d",
         "Rozłącza bota z kanału",
-        True,
+        False,
     ],
     [
         "+roll/kości/r <ilość kości> <rodzaj kości>",
         "Wykonuje rzut/y kości",
-        True,
+        False,
     ],
     [
         "+clear/czyść/usuń/c <ilość>",
         "Usuwa ostatnie <ilość> wiadomości",
-        True,
+        False,
     ],
 ]
 
