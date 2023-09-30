@@ -125,7 +125,7 @@ def is_youtube_playlist_link(text):
 
 def track_info(info: list, username: str):
     return {
-        "url": f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
+        "url": f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
         "title": info["title"],  # type: ignore
         "uploader": info["uploader"],  # type: ignore
         "duration": info["duration"],  # type: ignore
@@ -171,7 +171,7 @@ def track_embed(text: str, info: list, username: str = ""):
     )
     embed.add_field(
         name="URL",
-        value=f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
+        value=f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
         inline=False,
     )
     return embed
@@ -207,7 +207,7 @@ def playlist_embed(info: list, username: str = ""):
         )
         embed.add_field(
             name="URL",
-            value=f"https://www.youtu.be/watch?v={iter['id']}",  # type: ignore
+            value=f"https://www.youtube.com/watch?v={iter['id']}",  # type: ignore
             inline=False,
         )
     return embed
@@ -328,7 +328,7 @@ async def find(ctx, *, url: str) -> None:
     for i in info:
         embed.add_field(
             name=i["title"],
-            value=f"https://www.youtu.be/watch?v={i['id']}",
+            value=f"https://www.youtube.com/watch?v={i['id']}",
             inline=False,
         )
     await ctx.send(embed=embed)
@@ -407,7 +407,7 @@ async def queue(ctx) -> None:
                     info["title"],
                     info["uploader"],
                     date,
-                    f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
+                    f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
                 ),
                 inline=False,
             )
