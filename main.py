@@ -125,7 +125,7 @@ def is_youtube_playlist_link(text):
 
 def track_info(info: list, username: str):
     return {
-        "url": f"www.youtu.be/watch?v={info['id']}",  # type: ignore
+        "url": f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
         "title": info["title"],  # type: ignore
         "uploader": info["uploader"],  # type: ignore
         "duration": info["duration"],  # type: ignore
@@ -142,9 +142,14 @@ def get_ytsearch_info(url: str):
     return ydl.extract_info(f"ytsearch:'{url}'", download=True)
 
 
-def track_embed(embed, info: list, username: str = ""):
+def track_embed(text: str, info: list, username: str = ""):
     if not username:
         username = info["user"]  # type: ignore
+
+    embed = discord.Embed(
+        title=f"{text}: {info['title']}",  # type: ignore
+        color=discord.Colour.random(),
+    )
     embed.add_field(
         name="Kto dodał",
         value=username,
@@ -166,9 +171,45 @@ def track_embed(embed, info: list, username: str = ""):
     )
     embed.add_field(
         name="URL",
-        value=f"www.youtu.be/watch?v={info['id']}",  # type: ignore
+        value=f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
         inline=False,
     )
+
+
+def playlist_embed(info: list, username: str = ""):
+    if not username:
+        username = info["user"]  # type: ignore
+
+    embed = discord.Embed(
+        title="Dodano playliste",  # type: ignore
+        color=discord.Colour.random(),
+    )
+    embed.add_field(
+        name="Kto dodał",
+        value=username,
+        inline=False,
+    )
+    for iter in info:
+        embed.add_field(
+            name="Uploader",
+            value=iter["uploader"],  # type: ignore
+            inline=True,
+        )
+        embed.add_field(
+            name="Czas trwania",
+            value=str(
+                datetime.timedelta(
+                    seconds=int(iter["duration"]),  # type: ignore
+                )
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="URL",
+            value=f"https://www.youtu.be/watch?v={iter['id']}",  # type: ignore
+            inline=False,
+        )
+    return embed
 
 
 @bot.event
@@ -203,35 +244,7 @@ async def play(ctx, *, url: str) -> None:
     await ctx.channel.purge(limit=1)
     if is_youtube_playlist_link(url):
         info = get_yt_info(url=url)["entries"]  # type: ignore
-        embed = discord.Embed(
-            title="Dodano playliste",  # type: ignore
-            color=discord.Colour.random(),
-        )
-        embed.add_field(
-            name="Kto dodał",
-            value=username,
-            inline=False,
-        )
-        for iter in info:
-            embed.add_field(
-                name="Uploader",
-                value=iter["uploader"],  # type: ignore
-                inline=True,
-            )
-            embed.add_field(
-                name="Czas trwania",
-                value=str(
-                    datetime.timedelta(
-                        seconds=int(iter["duration"]),  # type: ignore
-                    )
-                ),
-                inline=True,
-            )
-            embed.add_field(
-                name="URL",
-                value=f"www.youtu.be/watch?v={iter['id']}",  # type: ignore
-                inline=False,
-            )
+        embed = playlist_embed(info=info, username=username)
         await ctx.send(embed=embed)
         if vs:
             voice_channel = vs.channel
@@ -263,12 +276,8 @@ async def play(ctx, *, url: str) -> None:
             info = get_yt_info(url=url)
         else:
             info = get_ytsearch_info(url=url)["entries"][0]  # type: ignore
-        embed = discord.Embed(
-            title=f"Dodano: {info['title']}",  # type: ignore
-            color=discord.Colour.random(),
-        )
-        track_embed(
-            embed=embed,
+        embed = track_embed(
+            text="Dodano",
             info=info,  # type: ignore
             username=username,
         )
@@ -318,7 +327,7 @@ async def find(ctx, *, url: str) -> None:
     for i in info:
         embed.add_field(
             name=i["title"],
-            value=f"www.youtu.be/watch?v={i['id']}",
+            value=f"https://www.youtu.be/watch?v={i['id']}",
             inline=False,
         )
     await ctx.send(embed=embed)
@@ -337,12 +346,8 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
         info = Queue[ident].pop(pos)
         try:
             vc.play(discord.FFmpegPCMAudio(f"./downloads/{info['id']}.webm"))
-            embed = discord.Embed(
-                title=f"Teraz odtwarzane: {info['title']}",
-                color=discord.Colour.random(),
-            )
-            track_embed(
-                embed=embed,
+            embed = track_embed(
+                text="Teraz odtwarzane",
                 info=info,  # type: ignore
             )
             await ctx.send(embed=embed)
@@ -401,7 +406,7 @@ async def queue(ctx) -> None:
                     info["title"],
                     info["uploader"],
                     date,
-                    f"www.youtu.be/watch?v={info['id']}",  # type: ignore
+                    f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
                 ),
                 inline=False,
             )
@@ -416,12 +421,8 @@ async def delete(ctx, pos=None) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if pos is not None and vc is not None and len(Queue[ident]) >= int(pos):
         info = Queue[ident].pop(int(pos) - 1)
-        embed = discord.Embed(
-            title=f"Usunięto z kolejki: {info['title']}",
-            color=discord.Colour.random(),
-        )
-        track_embed(
-            embed=embed,
+        embed = track_embed(
+            text="Usunięto z kolejki",
             info=info,  # type: ignore
         )
         await ctx.send(embed=embed)
