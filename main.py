@@ -174,6 +174,7 @@ def track_embed(text: str, info: list, username: str = ""):
         value=f"https://www.youtu.be/watch?v={info['id']}",  # type: ignore
         inline=False,
     )
+    return embed
 
 
 def playlist_embed(info: list, username: str = ""):
