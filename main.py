@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from asyncio import QueueEmpty
 import discord
 import os
 import re
@@ -44,8 +43,8 @@ man_page = [
         False,
     ],
     [
-        "+pause/pauza/wstrzymaj/w/ww",
-        "Wstrzymuje/Wznawia utwór",
+        "+pause/resume/wznów/wstrzymaj/w/ww/r",
+        "Wstrzymuje utwór",
         False,
     ],
     [
@@ -86,6 +85,7 @@ man_page = [
 ]
 
 Queue = {}
+Player = {}
 
 ydl_opts = {
     "format": "bestaudio[ext=webm]/best",
@@ -319,7 +319,7 @@ async def find(ctx, *, url: str) -> None:
 @tasks.loop(seconds=5.0)
 async def music_loop(ctx):
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if not vc.is_playing() and vc:  # type: ignore
+    if not vc.is_playing() and vc and not vc.is_paused():  # type: ignore
         await play_next(ctx, vc)
 
 
@@ -365,20 +365,19 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
         await vc.disconnect()
 
 
-@bot.command(pass_context=False, aliases=["pauza", "wstrzymaj", "w", "ww"])
+@bot.command(
+    pass_context=False,
+    aliases=["pauza", "resume", "wznów", "wstrzymaj", "w", "ww"],
+)
 async def pause(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None and vc.is_playing():  # type: ignore
         await ctx.send(
-            "Utwór został wstrzymany, \
-            aby wznowić wpisz ponownie `+pause`."
+            "Utwór został wstrzymany, aby wznowić wpisz ponownie `+pause`."
         )
         vc.pause()  # type: ignore
-    elif vc.paused():  # type: ignore
-        await ctx.send(
-            "Utwór został wstrzymany, \
-            aby wznowić wpisz ponownie `+pause`."
-        )
+    elif vc.is_paused():  # type: ignore
+        await ctx.send("Utwór został wznowiony!")
         vc.resume()  # type: ignore
     else:
         await ctx.send("Wystąpił błąd! Nie ma czego wstrzymać albo wznowić.")
@@ -486,7 +485,7 @@ async def disconnect(ctx) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=True, aliases=["kości", "r"])
+@bot.command(pass_context=True, aliases=["kości", "rzuć"])
 async def roll(ctx, ilosc: int, kosc: int) -> None:
     embed = discord.Embed(
         title="Rut kością",
