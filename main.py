@@ -28,52 +28,52 @@ bot = commands.Bot(
 
 man_page = [
     [
-        "+man",
+        "+man/manual/help/pomoc/h",
         "Wyświetla to okno pomocy",
         True,
     ],
     [
-        "+play <url>",
+        "+play/graj/odtwórz/p <url>/<tytuł utworu>",
         "Odtwarza utwór z podanego <url> albo dodaje go do kolejki",
         True,
     ],
     [
-        "+search <tytuł utworu>",
+        "+find/szukaj/przeszukaj/search/f <tytuł utworu>",
         "Zwraca 5 tytułów i linków do podanego <tytuł utworu>",
         True,
     ],
     [
-        "+pause",
+        "+pause/pauza/wstrzymaj/w/ww",
         "Wstrzymuje/Wznawia utwór",
         True,
     ],
     [
-        "+skip <numer>",
+        "+skip/pomiń/następny/s/n <numer>",
         "Odtwarza następny utwór/podany <numer> z kolejki",
         True,
     ],
     [
-        "+queue",
+        "+queue/kolejka/q/k",
         "Wyświetla kolejkę odtwarzania",
         True,
     ],
     [
-        "+stop",
+        "+stop/zatrzymaj/z",
         "Zatrzymuje odtwarzanie i czyści kolejkę",
         True,
     ],
     [
-        "+disconnect",
+        "+disconnect/rozłącz/d",
         "Rozłącza bota z kanału",
         True,
     ],
     [
-        "+roll <ilość kości> <rodzaj kości>",
+        "+roll/kości/r <ilość kości> <rodzaj kości>",
         "Wykonuje rzut/y kości",
         True,
     ],
     [
-        "+clear <ilość>",
+        "+clear/czyść/usuń/c <ilość>",
         "Usuwa ostatnie <ilość> wiadomości",
         True,
     ],
@@ -120,7 +120,7 @@ async def on_ready() -> None:
     print("Bot wystartował!")
 
 
-@bot.command(aliases=["manual", "help", "pomoc"], pass_context=False)
+@bot.command(aliases=["manual", "help", "pomoc", "h"], pass_context=False)
 async def man(ctx) -> None:
     embed = discord.Embed(
         title="Lista komend:",
@@ -139,20 +139,88 @@ async def man(ctx) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True)
+@bot.command(pass_context=True, aliases=["graj", "odtwórz", "p"])
 async def play(ctx, *, url: str) -> None:
     username = ctx.message.author.display_name
     ident = ctx.message.guild.id
     vs = ctx.author.voice
     await ctx.channel.purge(limit=1)
-    if not is_youtube_playlist_link(url):
+    if is_youtube_playlist_link(url):
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)["entries"]  # type: ignore
+        embed = discord.Embed(
+            title="Dodano playliste",  # type: ignore
+            color=discord.Colour.random(),
+        )
+        embed.add_field(
+            name="Kto dodał",
+            value=username,
+            inline=False,
+        )
+        for iter in info:
+            embed.add_field(
+                name="Uploader",
+                value=iter["uploader"],  # type: ignore
+                inline=True,
+            )
+            embed.add_field(
+                name="Czas trwania",
+                value=str(
+                    datetime.timedelta(
+                        seconds=int(iter["duration"]),  # type: ignore
+                    )
+                ),
+                inline=True,
+            )
+            embed.add_field(
+                name="URL",
+                value=f"https://www.youtube.com/watch?v={iter['id']}",  # type: ignore
+                inline=False,
+            )
+        await ctx.send(embed=embed)
+        if vs:
+            voice_channel = vs.channel
+            if not ctx.voice_client:
+                vc = await voice_channel.connect()
+            else:
+                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+            for iter in info:
+                if ident in Queue:
+                    Queue[ident].append(
+                        {
+                            "url": f"https://www.youtube.com/watch?v={iter['id']}",  # type: ignore
+                            "title": iter["title"],  # type: ignore
+                            "uploader": iter["uploader"],  # type: ignore
+                            "duration": iter["duration"],  # type: ignore
+                            "id": iter["id"],  # type: ignore
+                            "user": username,
+                        }
+                    )
+                else:
+                    Queue[ident] = [
+                        {
+                            "url": f"https://www.youtube.com/watch?v={iter['id']}",  # type: ignore
+                            "title": iter["title"],  # type: ignore
+                            "uploader": iter["uploader"],  # type: ignore
+                            "duration": iter["duration"],  # type: ignore
+                            "id": iter["id"],  # type: ignore
+                            "user": username,
+                        }
+                    ]
+            if not vc.is_playing():  # type: ignore
+                await play_next(ctx, vc)
+        else:
+            await ctx.send("Najpierw dołącz do kanału głosowego.")
+    else:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             if is_youtube_link(url):
                 info = ydl.extract_info(url, download=True)
             else:
-                info = ydl.extract_info(f"ytsearch:'{url}'", download=True)[
+                info = ydl.extract_info(f"ytsearch:'{url}'", download=True)[  # type: ignore
                     "entries"
-                ][0]
+                ][
+                    0
+                ]
         embed = discord.Embed(
             title=f"Dodano: {info['title']}",  # type: ignore
             color=discord.Colour.random(),
@@ -214,12 +282,12 @@ async def play(ctx, *, url: str) -> None:
                 await play_next(ctx, vc)
         else:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
-    else:
-        await ctx.send("Przepraszamy, ale playlisty nie są wspierane.")
 
 
-@bot.command(pass_context=True)
-async def search(ctx, *, url: str) -> None:
+@bot.command(
+    pass_context=True, aliases=["szukaj", "przeszukaj", "search", "f"]
+)
+async def find(ctx, *, url: str) -> None:
     await ctx.channel.purge(limit=1)
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch5:'{url}'", download=False)
@@ -291,7 +359,26 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
         await vc.disconnect()
 
 
-@bot.command(pass_context=True)
+@bot.command(pass_context=False, aliases=["pauza", "wstrzymaj", "w", "ww"])
+async def pause(ctx) -> None:
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if vc is not None and vc.is_playing():  # type: ignore
+        await ctx.send(
+            "Utwór został wstrzymany, \
+            aby wznowić wpisz ponownie `+pause`."
+        )
+        vc.pause()  # type: ignore
+    elif vc.paused():  # type: ignore
+        await ctx.send(
+            "Utwór został wstrzymany, \
+            aby wznowić wpisz ponownie `+pause`."
+        )
+        vc.resume()  # type: ignore
+    else:
+        await ctx.send("Wystąpił błąd! Nie ma czego wstrzymać albo wznowić.")
+
+
+@bot.command(pass_context=True, aliases=["pomiń", "następny", "s", "n"])
 async def skip(ctx, pos: int = 1) -> None:
     ident = ctx.message.guild.id
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -305,7 +392,7 @@ async def skip(ctx, pos: int = 1) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=False)
+@bot.command(pass_context=False, aliases=["kolejka", "q", "k"])
 async def queue(ctx) -> None:
     ident = ctx.message.guild.id
     if ident in Queue:
@@ -330,7 +417,7 @@ async def queue(ctx) -> None:
         await ctx.send("Kolejka jest pusta.")
 
 
-@bot.command(pass_context=False)
+@bot.command(pass_context=False, aliases=["zatrzymaj", "z"])
 async def stop(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     ident = ctx.message.guild.id
@@ -341,7 +428,7 @@ async def stop(ctx) -> None:
         await ctx.send("Nie ma czego zatrzymać.")
 
 
-@bot.command(pass_context=False)
+@bot.command(pass_context=False, aliases=["rozłącz", "d"])
 async def disconnect(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None:
@@ -350,7 +437,7 @@ async def disconnect(ctx) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=True)
+@bot.command(pass_context=True, aliases=["kości", "r"])
 async def roll(ctx, ilosc: int, kosc: int) -> None:
     embed = discord.Embed(
         title="Rut kością",
@@ -367,7 +454,7 @@ async def roll(ctx, ilosc: int, kosc: int) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True)
+@bot.command(pass_context=True, aliases=["czyść", "usuń", "c"])
 async def clear(ctx, num: int = 0):
     await ctx.channel.purge(limit=num + 1)
 
