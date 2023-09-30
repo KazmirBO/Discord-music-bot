@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from asyncio import QueueEmpty
 import discord
 import os
 import re
@@ -58,6 +59,11 @@ man_page = [
         False,
     ],
     [
+        "+delete/usuń/qd <numer>",
+        "Usuwa wybrany <numer> z kolejki odtwarzania",
+        False,
+    ],
+    [
         "+stop/zatrzymaj/z",
         "Zatrzymuje odtwarzanie i czyści kolejkę",
         False,
@@ -73,7 +79,7 @@ man_page = [
         False,
     ],
     [
-        "+clear/czyść/usuń/c <ilość>",
+        "+clear/czyść/c <ilość>",
         "Usuwa ostatnie <ilość> wiadomości",
         False,
     ],
@@ -395,7 +401,7 @@ async def skip(ctx, pos: int = 1) -> None:
 @bot.command(pass_context=False, aliases=["kolejka", "q", "k"])
 async def queue(ctx) -> None:
     ident = ctx.message.guild.id
-    if ident in Queue:
+    if ident in Queue and Queue[ident] != []:
         embed = discord.Embed(
             title="Kolejka odtwarzania:",
             color=discord.Colour.random(),
@@ -415,6 +421,49 @@ async def queue(ctx) -> None:
         await ctx.send(embed=embed)
     else:
         await ctx.send("Kolejka jest pusta.")
+
+
+@bot.command(pass_context=True, aliases=["usuń", "qd"])
+async def delete(ctx, pos=None) -> None:
+    ident = ctx.message.guild.id
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if pos is not None and vc is not None and len(Queue[ident]) >= int(pos):
+        info = Queue[ident].pop(int(pos) - 1)
+        embed = discord.Embed(
+            title=f"Usunięto z kolejki: {info['title']}",
+            color=discord.Colour.random(),
+        )
+        embed.add_field(
+            name="Kto dodał",
+            value=info["user"],
+            inline=True,
+        )
+        embed.add_field(
+            name="Uploader",
+            value=info["uploader"],
+            inline=True,
+        )
+        embed.add_field(
+            name="Czas trwania",
+            value=str(
+                datetime.timedelta(
+                    seconds=int(info["duration"]),
+                )
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="URL",
+            value=f"https://www.youtube.com/watch?v={info['id']}",  # type: ignore
+            inline=False,
+        )
+        await ctx.send(embed=embed)
+    elif pos is None:
+        await ctx.send("Podaj pozycję do usunięcia!")
+    elif len(Queue[ident]) < int(pos) or int(pos) < 0:
+        await ctx.send("Wybrałeś zły numer.")
+    else:
+        await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
 @bot.command(pass_context=False, aliases=["zatrzymaj", "z"])
@@ -454,7 +503,7 @@ async def roll(ctx, ilosc: int, kosc: int) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True, aliases=["czyść", "usuń", "c"])
+@bot.command(pass_context=True, aliases=["czyść", "c"])
 async def clear(ctx, num: int = 0):
     await ctx.channel.purge(limit=num + 1)
 
