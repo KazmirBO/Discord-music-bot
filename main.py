@@ -468,9 +468,9 @@ async def delete(ctx, pos=None) -> None:
 @bot.command(pass_context=False, aliases=["zatrzymaj", "z"])
 async def stop(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    ident = ctx.message.guild.id
     if vc is not None and vc.is_playing():  # type: ignore
         vc.stop()  # type: ignore
+        ident = ctx.message.guild.id
         Queue[ident].clear()
     else:
         await ctx.send("Nie ma czego zatrzymać.")
@@ -481,6 +481,8 @@ async def disconnect(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None:
         await vc.disconnect()  # type: ignore
+        ident = ctx.message.guild.id
+        Queue[ident].clear()
     else:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
@@ -492,11 +494,11 @@ async def roll(ctx, ilosc: int, kosc: int) -> None:
         color=0x4DFF00,
     )
     embed.set_author(
-        name="Symulator rzutu kością",
+        name=f"Symulator rzutu kością {ilosc}d{kosc}",
     )
     for i in range(ilosc):
         embed.add_field(
-            name=f"Kość: {str(i + 1)}",
+            name=f"Kość: {str(i + 1)}d{kosc}",
             value=random.randint(1, kosc),
         )
     await ctx.send(embed=embed)
