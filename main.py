@@ -143,7 +143,7 @@ def get_ytsearch_info(url: str):
 
 
 def track_embed(embed, info: list, username: str = ""):
-    if username:
+    if not username:
         username = info["user"]  # type: ignore
     embed.add_field(
         name="Kto dodał",
