@@ -140,12 +140,6 @@ def get_yt_info(url: str):
     return ydl.extract_info(url, download=True)
 
 
-async def get_vc(ctx, vs):
-    if not ctx.voice_client:
-        return vs.channel.connect()
-    return discord.utils.get(bot.voice_clients, guild=ctx.guild)
-
-
 def set_Queue(ident: int, Queue, info, username: str) -> None:
     if ident in Queue:
         Queue[ident].append(
@@ -273,7 +267,10 @@ async def play(ctx, *, url: str) -> None:
         embed = playlist_embed(info=info, username=username)
         await ctx.send(embed=embed)
         if ctx.author.voice:
-            vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
+            if not ctx.voice_client:
+                vc = ctx.autor.voice.channel.connect()
+            else:
+                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
             for iter in info:
                 set_Queue(
                     ident=ident, Queue=Queue, info=iter, username=username
@@ -294,7 +291,10 @@ async def play(ctx, *, url: str) -> None:
         )
         await ctx.send(embed=embed)
         if ctx.author.voice:
-            vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
+            if not ctx.voice_client:
+                vc = ctx.autor.voice.channel.connect()
+            else:
+                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
             set_Queue(ident=ident, Queue=Queue, info=info, username=username)
             if not vc.is_playing():  # type: ignore
                 await play_next(ctx, vc)
