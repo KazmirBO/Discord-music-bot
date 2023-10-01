@@ -140,6 +140,29 @@ def get_yt_info(url: str):
     return ydl.extract_info(url, download=True)
 
 
+def get_vc(ctx, vs):
+    if not ctx.voice_client:
+        return vs.channel.connect()
+    return discord.utils.get(bot.voice_clients, guild=ctx.guild)
+
+
+def set_Queue(ident: int, Queue, info, username: str) -> None:
+    if ident in Queue:
+        Queue[ident].append(
+            track_info(
+                info=info,  # type: ignore
+                username=username,
+            )
+        )
+    else:
+        Queue[ident] = [
+            track_info(
+                info=info,  # type: ignore
+                username=username,
+            )
+        ]
+
+
 def get_ytsearch_info(url: str, ilosc: str = ""):
     return ydl.extract_info(f"ytsearch{ilosc}:'{url}'", download=True)
 
@@ -222,6 +245,7 @@ async def on_ready() -> None:
 
 @bot.command(aliases=["manual", "help", "pomoc", "h"], pass_context=False)
 async def man(ctx) -> None:
+    await ctx.channel.purge(limit=1)
     embed = discord.Embed(
         title="Lista komend:",
         color=0x4DFF00,
@@ -243,39 +267,23 @@ async def man(ctx) -> None:
 async def play(ctx, *, url: str) -> None:
     username = ctx.message.author.display_name
     ident = ctx.message.guild.id
-    vs = ctx.author.voice
     await ctx.channel.purge(limit=1)
-    if is_youtube_playlist_link(url):
+    if is_youtube_playlist_link(text=url):
         info = get_yt_info(url=url)["entries"]  # type: ignore
         embed = playlist_embed(info=info, username=username)
         await ctx.send(embed=embed)
-        if vs:
-            voice_channel = vs.channel
-            if not ctx.voice_client:
-                vc = await voice_channel.connect()
-            else:
-                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+        if ctx.author.voice:
+            vc = get_vc(ctx=ctx, vs=ctx.author.voice)
             for iter in info:
-                if ident in Queue:
-                    Queue[ident].append(
-                        track_info(
-                            info=iter,
-                            username=username,
-                        )
-                    )
-                else:
-                    Queue[ident] = [
-                        track_info(
-                            info=iter,
-                            username=username,
-                        )
-                    ]
+                set_Queue(
+                    ident=ident, Queue=Queue, info=iter, username=username
+                )
             if not vc.is_playing():  # type: ignore
-                await play_next(ctx, vc)
+                await play_next(ctx=ctx, vc=vc)
         else:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
     else:
-        if is_youtube_link(url):
+        if is_youtube_link(text=url):
             info = get_yt_info(url=url)
         else:
             info = get_ytsearch_info(url=url)["entries"][0]  # type: ignore
@@ -285,26 +293,9 @@ async def play(ctx, *, url: str) -> None:
             username=username,
         )
         await ctx.send(embed=embed)
-        if vs:
-            voice_channel = vs.channel
-            if not ctx.voice_client:
-                vc = await voice_channel.connect()
-            else:
-                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-            if ident in Queue:
-                Queue[ident].append(
-                    track_info(
-                        info=info,  # type: ignore
-                        username=username,
-                    )
-                )
-            else:
-                Queue[ident] = [
-                    track_info(
-                        info=info,  # type: ignore
-                        username=username,
-                    )
-                ]
+        if ctx.author.voice:
+            vc = get_vc(ctx=ctx, vs=ctx.author.voice)
+            set_Queue(ident=ident, Queue=Queue, info=info, username=username)
             if not vc.is_playing():  # type: ignore
                 await play_next(ctx, vc)
         else:
@@ -442,8 +433,7 @@ async def stop(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None and vc.is_playing():  # type: ignore
         vc.stop()  # type: ignore
-        ident = ctx.message.guild.id
-        Queue[ident].clear()
+        Queue[ctx.message.guild.id].clear()
     else:
         await ctx.send("Nie ma czego zatrzymać.")
 
@@ -453,8 +443,7 @@ async def disconnect(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None:
         await vc.disconnect()  # type: ignore
-        ident = ctx.message.guild.id
-        Queue[ident].clear()
+        Queue[ctx.message.guild.id].clear()
     else:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
