@@ -140,6 +140,12 @@ def get_yt_info(url: str):
     return ydl.extract_info(url, download=True)
 
 
+async def get_vc(ctx, vs):
+    if not ctx.voice_client:
+        return await vs.channel.connect()
+    return discord.utils.get(bot.voice_clients, guild=ctx.guild)
+
+
 def set_Queue(ident: int, Queue, info, username: str) -> None:
     if ident in Queue:
         Queue[ident].append(
@@ -261,18 +267,13 @@ async def man(ctx) -> None:
 async def play(ctx, *, url: str) -> None:
     username = ctx.message.author.display_name
     ident = ctx.message.guild.id
-    vs = ctx.autor.voice
     await ctx.channel.purge(limit=1)
     if is_youtube_playlist_link(text=url):
         info = get_yt_info(url=url)["entries"]  # type: ignore
         embed = playlist_embed(info=info, username=username)
         await ctx.send(embed=embed)
-        if vs:
-            voice_channel = vs.channel
-            if not ctx.voice_client:
-                vc = await voice_channel.connect()
-            else:
-                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+        if ctx.author.voice:
+            vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
             for iter in info:
                 set_Queue(
                     ident=ident, Queue=Queue, info=iter, username=username
@@ -293,11 +294,7 @@ async def play(ctx, *, url: str) -> None:
         )
         await ctx.send(embed=embed)
         if ctx.author.voice:
-            voice_channel = vs.channel
-            if not ctx.voice_client:
-                vc = await voice_channel.connect()
-            else:
-                vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+            vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
             set_Queue(ident=ident, Queue=Queue, info=info, username=username)
             if not vc.is_playing():  # type: ignore
                 await play_next(ctx, vc)
