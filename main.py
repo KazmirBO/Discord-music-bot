@@ -261,14 +261,16 @@ async def man(ctx) -> None:
 async def play(ctx, *, url: str) -> None:
     username = ctx.message.author.display_name
     ident = ctx.message.guild.id
+    vs = ctx.autor.voice
     await ctx.channel.purge(limit=1)
     if is_youtube_playlist_link(text=url):
         info = get_yt_info(url=url)["entries"]  # type: ignore
         embed = playlist_embed(info=info, username=username)
         await ctx.send(embed=embed)
-        if ctx.author.voice:
+        if vs:
+            voice_channel = vs.channel
             if not ctx.voice_client:
-                vc = ctx.autor.voice.channel.connect()
+                vc = await voice_channel.connect()
             else:
                 vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
             for iter in info:
@@ -291,8 +293,9 @@ async def play(ctx, *, url: str) -> None:
         )
         await ctx.send(embed=embed)
         if ctx.author.voice:
+            voice_channel = vs.channel
             if not ctx.voice_client:
-                vc = ctx.autor.voice.channel.connect()
+                vc = await voice_channel.connect()
             else:
                 vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
             set_Queue(ident=ident, Queue=Queue, info=info, username=username)
