@@ -328,7 +328,7 @@ async def find(ctx, *, url: str) -> None:
 
 
 @tasks.loop(seconds=5.0)
-async def music_loop(ctx):
+async def music_loop(ctx) -> None:
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if not vc.is_playing() and vc and not vc.is_paused():  # type: ignore
         await play_next(ctx, vc)
@@ -357,6 +357,7 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
     aliases=["pauza", "resume", "wznów", "wstrzymaj", "w", "ww"],
 )
 async def pause(ctx) -> None:
+    await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None and vc.is_playing():  # type: ignore
         await ctx.send(
@@ -372,6 +373,7 @@ async def pause(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["pomiń", "następny", "s", "n"])
 async def skip(ctx, pos: int = 1) -> None:
+    await ctx.channel.purge(limit=1)
     ident = ctx.message.guild.id
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None and len(Queue[ident]) >= pos:
@@ -386,6 +388,7 @@ async def skip(ctx, pos: int = 1) -> None:
 
 @bot.command(pass_context=False, aliases=["kolejka", "q", "k"])
 async def queue(ctx) -> None:
+    await ctx.channel.purge(limit=1)
     ident = ctx.message.guild.id
     if ident in Queue and Queue[ident] != []:
         embed = discord.Embed(
@@ -411,6 +414,7 @@ async def queue(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["usuń", "qd"])
 async def delete(ctx, pos=None) -> None:
+    await ctx.channel.purge(limit=1)
     ident = ctx.message.guild.id
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if pos is not None and vc is not None and len(Queue[ident]) >= int(pos):
@@ -430,6 +434,7 @@ async def delete(ctx, pos=None) -> None:
 
 @bot.command(pass_context=False, aliases=["zatrzymaj", "z"])
 async def stop(ctx) -> None:
+    await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None and vc.is_playing():  # type: ignore
         vc.stop()  # type: ignore
@@ -440,6 +445,7 @@ async def stop(ctx) -> None:
 
 @bot.command(pass_context=False, aliases=["rozłącz", "d"])
 async def disconnect(ctx) -> None:
+    await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None:
         await vc.disconnect()  # type: ignore
@@ -450,6 +456,7 @@ async def disconnect(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["kości", "rzuć"])
 async def roll(ctx, ilosc: int, kosc: int) -> None:
+    await ctx.channel.purge(limit=1)
     embed = discord.Embed(
         title="Rut kością",
         color=0x4DFF00,
@@ -466,7 +473,7 @@ async def roll(ctx, ilosc: int, kosc: int) -> None:
 
 
 @bot.command(pass_context=True, aliases=["czyść", "c"])
-async def clear(ctx, num: int = 0):
+async def clear(ctx, num: int = 0) -> None:
     await ctx.channel.purge(limit=num + 1)
 
 
