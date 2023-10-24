@@ -113,9 +113,24 @@ yt_link = "https://www.youtube.com/watch?v="
 
 def is_youtube_link(text):
     youtube_link_pattern = re.compile(
-        r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$"
+        # r"(https?://)?(www\.)?youtu\.be/([a-zA-Z0-9_-]+)"
+        r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/([a-zA-Z0-9_-]+)"
     )
-    return youtube_link_pattern.match(text) is not None
+
+    match = youtube_link_pattern.match(text)
+    if match:
+        video_id = match.group(3)
+        converted_link = f"{yt_link}{video_id}"
+        return converted_link
+    else:
+        return text is not None
+
+
+# def is_youtube_link(text):
+#     youtube_link_pattern = re.compile(
+#         r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$"
+#     )
+#     return youtube_link_pattern.match(text) is not None
 
 
 def is_youtube_playlist_link(text):
@@ -436,11 +451,8 @@ async def delete(ctx, pos=None) -> None:
 async def stop(ctx) -> None:
     await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if vc is not None and vc.is_playing():  # type: ignore
-        vc.stop()  # type: ignore
-        Queue[ctx.message.guild.id].clear()
-    else:
-        await ctx.send("Nie ma czego zatrzymać.")
+    vc.stop()  # type: ignore
+    Queue[ctx.message.guild.id].clear()
 
 
 @bot.command(pass_context=False, aliases=["rozłącz", "d"])
