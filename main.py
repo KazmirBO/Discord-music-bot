@@ -113,29 +113,14 @@ yt_link = "https://www.youtube.com/watch?v="
 
 def is_youtube_link(text):
     youtube_link_pattern = re.compile(
-        # r"(https?://)?(www\.)?youtu\.be/([a-zA-Z0-9_-]+)"
-        r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/([a-zA-Z0-9_-]+)"
+        r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$"
     )
-
-    match = youtube_link_pattern.match(text)
-    if match:
-        video_id = match.group(3)
-        converted_link = f"{yt_link}{video_id}"
-        return converted_link
-    else:
-        return text is not None
-
-
-# def is_youtube_link(text):
-#     youtube_link_pattern = re.compile(
-#         r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$"
-#     )
-#     return youtube_link_pattern.match(text) is not None
+    return youtube_link_pattern.match(text) is not None
 
 
 def is_youtube_playlist_link(text):
     youtube_playlist_pattern = re.compile(
-        r"(https?://)?(www\.)?(youtube\.com/playlist\?list=|youtu\.be/)([A-Za-z0-9_-]+)$"
+        r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/playlist\?list=.+$"
     )
     return youtube_playlist_pattern.match(text) is not None
 
