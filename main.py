@@ -28,64 +28,63 @@ bot = commands.Bot(
 
 man_page = [
     [
-        "+man/manual/help/pomoc/h",
+        "+h/help",
         "Wyświetla to okno pomocy",
         False,
     ],
     [
-        "+play/graj/odtwórz/p <url>/<tytuł utworu>",
+        "+p/play <url>/<tytuł utworu>",
         "Odtwarza utwór z podanego <url> albo dodaje go do kolejki",
         False,
     ],
     [
-        "+find/szukaj/przeszukaj/search/f <tytuł utworu>",
+        "+find <tytuł utworu>",
         "Zwraca 5 tytułów i linków do podanego <tytuł utworu>",
         False,
     ],
     [
-        "+pause/resume/wznów/wstrzymaj/w/ww/r",
+        "+pause/resume",
         "Wstrzymuje utwór",
         False,
     ],
     [
-        "+skip/pomiń/następny/s/n <numer>",
+        "+skip <numer>",
         "Odtwarza następny utwór/podany <numer> z kolejki",
         False,
     ],
     [
-        "+queue/kolejka/q/k",
+        "+queue",
         "Wyświetla kolejkę odtwarzania",
         False,
     ],
     [
-        "+delete/usuń/qd <numer>",
+        "+delete <numer>",
         "Usuwa wybrany <numer> z kolejki odtwarzania",
         False,
     ],
     [
-        "+stop/zatrzymaj/z",
+        "+stop",
         "Zatrzymuje odtwarzanie i czyści kolejkę",
         False,
     ],
     [
-        "+disconnect/rozłącz/d",
+        "+disconnect",
         "Rozłącza bota z kanału",
         False,
     ],
     [
-        "+roll/kości/r <ilość kości> <rodzaj kości>",
+        "+roll <ilość kości> <rodzaj kości>",
         "Wykonuje rzut/y kości",
         False,
     ],
     [
-        "+clear/czyść/c <ilość>",
+        "+clear <ilość>",
         "Usuwa ostatnie <ilość> wiadomości",
         False,
     ],
 ]
 
 Queue = {}
-Player = {}
 
 ydl_opts = {
     "format": "bestaudio[ext=webm]/best",
@@ -243,8 +242,16 @@ async def on_ready() -> None:
     print("Bot wystartował!")
 
 
-@bot.command(aliases=["manual", "help", "pomoc", "h"], pass_context=False)
-async def man(ctx) -> None:
+@bot.event
+async def on_voice_state_update(member, before, after):
+    del after, before
+    voice_state = member.guild.voice_client
+    if voice_state is not None and len(voice_state.channel.members) == 1:
+        await voice_state.disconnect()
+
+
+@bot.command(aliases=["h"], pass_context=False)
+async def help(ctx) -> None:
     await ctx.channel.purge(limit=1)
     embed = discord.Embed(
         title="Lista komend:",
@@ -263,7 +270,7 @@ async def man(ctx) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True, aliases=["graj", "odtwórz", "p"])
+@bot.command(pass_context=True, aliases=["p"])
 async def play(ctx, *, url: str) -> None:
     username = ctx.message.author.display_name
     ident = ctx.message.guild.id
@@ -276,7 +283,10 @@ async def play(ctx, *, url: str) -> None:
             vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
             for iter in info:
                 set_Queue(
-                    ident=ident, Queue=Queue, info=iter, username=username
+                    ident=ident,
+                    Queue=Queue,
+                    info=iter,
+                    username=username,
                 )
             if not vc.is_playing():  # type: ignore
                 await play_next(ctx=ctx, vc=vc)
@@ -302,9 +312,7 @@ async def play(ctx, *, url: str) -> None:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
 
 
-@bot.command(
-    pass_context=True, aliases=["szukaj", "przeszukaj", "search", "f"]
-)
+@bot.command(pass_context=True)
 async def find(ctx, *, url: str) -> None:
     await ctx.channel.purge(limit=1)
     info = get_ytsearch_info(url=url, ilosc="5")["entries"]  # type: ignore
@@ -354,15 +362,13 @@ async def play_next(ctx, vc, pos: int = 0) -> None:
 
 @bot.command(
     pass_context=False,
-    aliases=["pauza", "resume", "wznów", "wstrzymaj", "w", "ww"],
+    aliases=["resume"],
 )
 async def pause(ctx) -> None:
     await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if vc is not None and vc.is_playing():  # type: ignore
-        await ctx.send(
-            "Utwór został wstrzymany, aby wznowić wpisz ponownie `+pause`."
-        )
+        await ctx.send("Utwór został wstrzymany, aby wznowić wpisz ponownie `+pause`.")
         vc.pause()  # type: ignore
     elif vc.is_paused():  # type: ignore
         await ctx.send("Utwór został wznowiony!")
@@ -371,7 +377,7 @@ async def pause(ctx) -> None:
         await ctx.send("Wystąpił błąd! Nie ma czego wstrzymać albo wznowić.")
 
 
-@bot.command(pass_context=True, aliases=["pomiń", "następny", "s", "n"])
+@bot.command(pass_context=True)
 async def skip(ctx, pos: int = 1) -> None:
     await ctx.channel.purge(limit=1)
     ident = ctx.message.guild.id
@@ -386,7 +392,7 @@ async def skip(ctx, pos: int = 1) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=False, aliases=["kolejka", "q", "k"])
+@bot.command(pass_context=False)
 async def queue(ctx) -> None:
     await ctx.channel.purge(limit=1)
     ident = ctx.message.guild.id
@@ -412,7 +418,7 @@ async def queue(ctx) -> None:
         await ctx.send("Kolejka jest pusta.")
 
 
-@bot.command(pass_context=True, aliases=["usuń", "qd"])
+@bot.command(pass_context=True)
 async def delete(ctx, pos=None) -> None:
     await ctx.channel.purge(limit=1)
     ident = ctx.message.guild.id
@@ -432,7 +438,7 @@ async def delete(ctx, pos=None) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=False, aliases=["zatrzymaj", "z"])
+@bot.command(pass_context=False)
 async def stop(ctx) -> None:
     await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -440,7 +446,7 @@ async def stop(ctx) -> None:
     Queue[ctx.message.guild.id].clear()
 
 
-@bot.command(pass_context=False, aliases=["rozłącz", "d"])
+@bot.command(pass_context=False)
 async def disconnect(ctx) -> None:
     await ctx.channel.purge(limit=1)
     vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -451,7 +457,7 @@ async def disconnect(ctx) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=True, aliases=["kości", "rzuć"])
+@bot.command(pass_context=True)
 async def roll(ctx, ilosc: int, kosc: int) -> None:
     await ctx.channel.purge(limit=1)
     embed = discord.Embed(
@@ -469,7 +475,7 @@ async def roll(ctx, ilosc: int, kosc: int) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True, aliases=["czyść", "c"])
+@bot.command(pass_context=True)
 async def clear(ctx, num: int = 0) -> None:
     await ctx.channel.purge(limit=num + 1)
 
