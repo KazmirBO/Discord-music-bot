@@ -84,12 +84,11 @@ man_page = [
     ],
 ]
 
-Qu = {}
-Pl = {}
+Queue = {}
+
 ydl_opts = {
     "format": "bestaudio[ext=webm]/best",
-    "outtmpl": "files/%(id)s.%(ext)s",
-    "download": True,
+    "outtmpl": "downloads/%(id)s.%(ext)s",
     "restrictfilenames": True,
     "noplaylist": True,
     "nocheckcertificate": True,
@@ -137,7 +136,7 @@ def track_info(info: list, username: str):
 
 
 def get_yt_info(url: str):
-    return ydl.extract_info(url)
+    return ydl.extract_info(url, download=True)
 
 
 async def get_vc(ctx, vs):
@@ -146,25 +145,25 @@ async def get_vc(ctx, vs):
     return discord.utils.get(bot.voice_clients, guild=ctx.guild)
 
 
-def set_queue(id: int, Qu, info, username: str) -> None:
-    if id in Qu:
-        Qu[id].append(
+def set_Queue(ident: int, Queue, info, username: str) -> None:
+    if ident in Queue:
+        Queue[ident].append(
             track_info(
-                info=info,
+                info=info,  # type: ignore
                 username=username,
             )
         )
     else:
-        Qu[id] = [
+        Queue[ident] = [
             track_info(
-                info=info,
+                info=info,  # type: ignore
                 username=username,
             )
         ]
 
 
 def get_ytsearch_info(url: str, ilosc: str = ""):
-    return ydl.extract_info(f"ytsearch{ilosc}:'{url}'")
+    return ydl.extract_info(f"ytsearch{ilosc}:'{url}'", download=True)
 
 
 def track_embed(text: str, info: list, username: str = ""):
@@ -207,7 +206,7 @@ def playlist_embed(info: list, username: str = ""):
         username = info["user"]  # type: ignore
 
     embed = discord.Embed(
-        title="Dodano playliste",
+        title="Dodano playliste",  # type: ignore
         color=discord.Colour.random(),
     )
     embed.add_field(
@@ -218,42 +217,24 @@ def playlist_embed(info: list, username: str = ""):
     for iter in info:
         embed.add_field(
             name="Uploader",
-            value=iter["uploader"],
+            value=iter["uploader"],  # type: ignore
             inline=True,
         )
         embed.add_field(
             name="Czas trwania",
             value=str(
                 datetime.timedelta(
-                    seconds=int(iter["duration"]),
+                    seconds=int(iter["duration"]),  # type: ignore
                 )
             ),
             inline=True,
         )
         embed.add_field(
             name="URL",
-            value=f"{yt_link}{iter['id']}",
+            value=f"{yt_link}{iter['id']}",  # type: ignore
             inline=False,
         )
     return embed
-
-
-async def play_next(ctx, pos: int = 0) -> None:
-    id = ctx.message.guild.id
-    if Qu[id] != []:
-        info = Qu[id].pop(pos)
-        try:
-            Pl[id].play(discord.FFmpegPCMAudio(f"./files/{info['id']}.webm"))
-            embed = track_embed(
-                text="Teraz odtwarzane",
-                info=info,
-            )
-            await ctx.send(embed=embed)
-            music_loop.start(ctx)
-        except Exception as err:
-            print(f"Wystąpił błąd: {err=}, {type(err)=}")
-    else:
-        await Pl[id].disconnect()
 
 
 @bot.event
@@ -291,24 +272,24 @@ async def help(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["p"])
 async def play(ctx, *, url: str) -> None:
-    await ctx.channel.purge(limit=1)
     username = ctx.message.author.display_name
-    id = ctx.message.guild.id
+    ident = ctx.message.guild.id
+    await ctx.channel.purge(limit=1)
     if is_youtube_playlist_link(text=url):
         info = get_yt_info(url=url)["entries"]  # type: ignore
         embed = playlist_embed(info=info, username=username)
         await ctx.send(embed=embed)
         if ctx.author.voice:
-            Pl[id] = await get_vc(ctx=ctx, vs=ctx.author.voice)
+            vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
             for iter in info:
-                set_queue(
-                    id=id,
-                    Qu=Qu,
+                set_Queue(
+                    ident=ident,
+                    Queue=Queue,
                     info=iter,
                     username=username,
                 )
-            if not Pl[id].is_playing():
-                await play_next(ctx=ctx)
+            if not vc.is_playing():  # type: ignore
+                await play_next(ctx=ctx, vc=vc)
         else:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
     else:
@@ -323,10 +304,10 @@ async def play(ctx, *, url: str) -> None:
         )
         await ctx.send(embed=embed)
         if ctx.author.voice:
-            Pl[id] = await get_vc(ctx=ctx, vs=ctx.author.voice)
-            set_queue(id=id, Qu=Qu, info=info, username=username)
-            if not Pl[id].is_playing():
-                await play_next(ctx)
+            vc = await get_vc(ctx=ctx, vs=ctx.author.voice)
+            set_Queue(ident=ident, Queue=Queue, info=info, username=username)
+            if not vc.is_playing():  # type: ignore
+                await play_next(ctx, vc)
         else:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
 
@@ -337,7 +318,7 @@ async def find(ctx, *, url: str) -> None:
     info = get_ytsearch_info(url=url, ilosc="5")["entries"]  # type: ignore
     username = ctx.message.author.display_name
     embed = discord.Embed(
-        title="Wybierz link interesującego ciebie utworu:",
+        title="Wybierz link interesującego ciebie utworu:",  # type: ignore
         color=discord.Colour.random(),
     )
     embed.add_field(
@@ -356,25 +337,42 @@ async def find(ctx, *, url: str) -> None:
 
 @tasks.loop(seconds=5.0)
 async def music_loop(ctx) -> None:
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if Pl[id]:
-        if not Pl[id].is_playing():
-            if not Pl[id].is_paused():
-                await play_next(ctx)
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if not vc.is_playing() and vc and not vc.is_paused():  # type: ignore
+        await play_next(ctx, vc)
 
 
-@bot.command(pass_context=False, aliases=["resume"])
+async def play_next(ctx, vc, pos: int = 0) -> None:
+    ident = ctx.message.guild.id
+    if Queue[ident] != []:
+        info = Queue[ident].pop(pos)
+        try:
+            vc.play(discord.FFmpegPCMAudio(f"./downloads/{info['id']}.webm"))
+            embed = track_embed(
+                text="Teraz odtwarzane",
+                info=info,  # type: ignore
+            )
+            await ctx.send(embed=embed)
+            music_loop.start(ctx)
+        except Exception as err:
+            print(f"Wystąpił błąd: {err=}, {type(err)=}")
+    else:
+        await vc.disconnect()
+
+
+@bot.command(
+    pass_context=False,
+    aliases=["resume"],
+)
 async def pause(ctx) -> None:
     await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if Pl[id] is not None and Pl[id].is_playing():
-        await ctx.send("Utwór został wstrzymany.")
-        Pl[id].pause()
-    elif Pl[id].is_paused():
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if vc is not None and vc.is_playing():  # type: ignore
+        await ctx.send("Utwór został wstrzymany, aby wznowić wpisz ponownie `+pause`.")
+        vc.pause()  # type: ignore
+    elif vc.is_paused():  # type: ignore
         await ctx.send("Utwór został wznowiony!")
-        Pl[id].resume()
+        vc.resume()  # type: ignore
     else:
         await ctx.send("Wystąpił błąd! Nie ma czego wstrzymać albo wznowić.")
 
@@ -382,13 +380,13 @@ async def pause(ctx) -> None:
 @bot.command(pass_context=True)
 async def skip(ctx, pos: int = 1) -> None:
     await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if Pl[id] is not None and len(Qu[id]) >= pos:
-        if Pl[id].is_playing():
-            Pl[id].stop()
-        await play_next(ctx, pos - 1)
-    elif len(Qu[id]) < pos:
+    ident = ctx.message.guild.id
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if vc is not None and len(Queue[ident]) >= pos:
+        if vc.is_playing():  # type: ignore
+            vc.stop()  # type: ignore
+        await play_next(ctx, vc, pos - 1)
+    elif len(Queue[ident]) < pos:
         await ctx.send("Kolejka jest pusta.")
     else:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
@@ -397,13 +395,13 @@ async def skip(ctx, pos: int = 1) -> None:
 @bot.command(pass_context=False)
 async def queue(ctx) -> None:
     await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
-    if id in Qu and Qu[id] != []:
+    ident = ctx.message.guild.id
+    if ident in Queue and Queue[ident] != []:
         embed = discord.Embed(
             title="Kolejka odtwarzania:",
             color=discord.Colour.random(),
         )
-        for i, info in enumerate(Qu[id], start=1):
+        for i, info in enumerate(Queue[ident], start=1):
             date = str(datetime.timedelta(seconds=int(info["duration"])))
             embed.add_field(
                 name=f"Utwór w kolejce: {i}",
@@ -411,7 +409,7 @@ async def queue(ctx) -> None:
                     info["title"],
                     info["uploader"],
                     date,
-                    f"{yt_link}{info['id']}",
+                    f"{yt_link}{info['id']}",  # type: ignore
                 ),
                 inline=False,
             )
@@ -423,18 +421,18 @@ async def queue(ctx) -> None:
 @bot.command(pass_context=True)
 async def delete(ctx, pos=None) -> None:
     await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if pos is not None and Pl[id] is not None and len(Qu[id]) >= int(pos):
-        info = Qu[id].pop(int(pos) - 1)
+    ident = ctx.message.guild.id
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if pos is not None and vc is not None and len(Queue[ident]) >= int(pos):
+        info = Queue[ident].pop(int(pos) - 1)
         embed = track_embed(
             text="Usunięto z kolejki",
-            info=info,
+            info=info,  # type: ignore
         )
         await ctx.send(embed=embed)
     elif pos is None:
         await ctx.send("Podaj pozycję do usunięcia!")
-    elif len(Qu[id]) < int(pos) or int(pos) < 0:
+    elif len(Queue[ident]) < int(pos) or int(pos) < 0:
         await ctx.send("Wybrałeś zły numer.")
     else:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
@@ -443,20 +441,18 @@ async def delete(ctx, pos=None) -> None:
 @bot.command(pass_context=False)
 async def stop(ctx) -> None:
     await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    Pl[id].stop()
-    Qu[ctx.message.guild.id].clear()
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    vc.stop()  # type: ignore
+    Queue[ctx.message.guild.id].clear()
 
 
 @bot.command(pass_context=False)
 async def disconnect(ctx) -> None:
     await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if Pl[id] is not None:
-        await Pl[id].disconnect()
-        Qu[ctx.message.guild.id].clear()
+    vc = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if vc is not None:
+        await vc.disconnect()  # type: ignore
+        Queue[ctx.message.guild.id].clear()
     else:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
