@@ -136,10 +136,6 @@ def track_info(info: list, username: str):
     }
 
 
-def get_yt_info(url: str):
-    return ydl.extract_info(url)
-
-
 async def get_vc(ctx, vs):
     if not ctx.voice_client:
         return await vs.channel.connect()
@@ -254,6 +250,13 @@ async def play_next(ctx, pos: int = 0) -> None:
         await Pl[id].disconnect()
 
 
+async def get_user_id(ctx) -> tuple:
+    await ctx.channel.purge(limit=1)
+    username = ctx.message.author.display_name
+    id = ctx.message.guild.id
+    return username, id
+
+
 @bot.event
 async def on_ready() -> None:
     print("Bot wystartował!")
@@ -277,7 +280,7 @@ async def music_loop(ctx) -> None:
 
 @bot.command(aliases=["h", "help", "man"], pass_context=False)
 async def _pomoc(ctx) -> None:
-    await ctx.channel.purge(limit=1)
+    _, _ = await get_user_id(ctx=ctx)
     embed = discord.Embed(
         title="Lista komend:",
         color=0x4DFF00,
@@ -297,15 +300,13 @@ async def _pomoc(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["p", "play"])
 async def _graj(ctx, *, url: str) -> None:
-    await ctx.channel.purge(limit=1)
-    username = ctx.message.author.display_name
-    id = ctx.message.guild.id
+    username, id = await get_user_id(ctx=ctx)
     if is_youtube_playlist_link(text=url):
-        info = get_yt_info(url=url)["entries"]  # type: ignore
+        info = ydl.extract_info(url)["entries"]  # type: ignore
         playlist = True
     else:
         if is_youtube_link(text=url):
-            info = get_yt_info(url=url)
+            info = ydl.extract_info(url)
         else:
             info = get_ytsearch_info(url=url)["entries"][0]  # type: ignore
         playlist = False
@@ -342,9 +343,8 @@ async def _graj(ctx, *, url: str) -> None:
 
 @bot.command(pass_context=True, aliases=["f", "find"])
 async def _szukaj(ctx, *, url: str) -> None:
-    await ctx.channel.purge(limit=1)
+    username, _ = await get_user_id(ctx=ctx)
     info = get_ytsearch_info(url=url, ilosc="5")["entries"]  # type: ignore
-    username = ctx.message.author.display_name
     embed = discord.Embed(
         title="Wybierz link interesującego ciebie utworu:",
         color=discord.Colour.random(),
@@ -366,8 +366,7 @@ async def _szukaj(ctx, *, url: str) -> None:
 
 @bot.command(pass_context=False, aliases=["pr", "pause", "resume"])
 async def _pauza(ctx) -> None:
-    await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
+    _, id = await get_user_id(ctx=ctx)
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if Pl[id] is not None and Pl[id].is_playing():
         await ctx.send("Utwór został wstrzymany.")
@@ -381,8 +380,7 @@ async def _pauza(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["sk", "skip"])
 async def _pomin(ctx, pos: int = 1) -> None:
-    await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
+    _, id = await get_user_id(ctx=ctx)
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if Pl[id] is not None and len(Qu[id]) >= pos:
         if Pl[id].is_playing():
@@ -396,8 +394,7 @@ async def _pomin(ctx, pos: int = 1) -> None:
 
 @bot.command(pass_context=False, aliases=["q", "queue"])
 async def _kolejka(ctx) -> None:
-    await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
+    _, id = await get_user_id(ctx=ctx)
     if id in Qu and Qu[id] != []:
         embed = discord.Embed(
             title="Kolejka odtwarzania:",
@@ -422,8 +419,7 @@ async def _kolejka(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["dl", "delete"])
 async def _usun(ctx, pos=None) -> None:
-    await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
+    _, id = await get_user_id(ctx=ctx)
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if pos is not None and Pl[id] is not None and len(Qu[id]) >= int(pos):
         info = Qu[id].pop(int(pos) - 1)
@@ -442,8 +438,7 @@ async def _usun(ctx, pos=None) -> None:
 
 @bot.command(pass_context=False, aliases=["s", "stop"])
 async def _zatrzymaj(ctx) -> None:
-    await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
+    _, id = await get_user_id(ctx=ctx)
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     Pl[id].stop()
     Qu[ctx.message.guild.id].clear()
@@ -451,8 +446,7 @@ async def _zatrzymaj(ctx) -> None:
 
 @bot.command(pass_context=False, aliases=["d", "disconnect"])
 async def _rozlacz(ctx) -> None:
-    await ctx.channel.purge(limit=1)
-    id = ctx.message.guild.id
+    _, id = await get_user_id(ctx=ctx)
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
     if Pl[id] is not None:
         await Pl[id].disconnect()
@@ -463,7 +457,7 @@ async def _rozlacz(ctx) -> None:
 
 @bot.command(pass_context=True, aliases=["r", "roll"])
 async def _kosc(ctx, ilosc: int, kosc: int) -> None:
-    await ctx.channel.purge(limit=1)
+    _, _ = await get_user_id(ctx=ctx)
     embed = discord.Embed(
         title="Rut kością",
         color=0x4DFF00,
