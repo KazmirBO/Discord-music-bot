@@ -207,7 +207,7 @@ def playlist_embed(info: list, username: str = ""):
         username = info["user"]  # type: ignore
 
     embed = discord.Embed(
-        title="Dodano playliste",
+        title="Dodano",
         color=discord.Colour.random(),
     )
     embed.add_field(
@@ -296,37 +296,40 @@ async def play(ctx, *, url: str) -> None:
     id = ctx.message.guild.id
     if is_youtube_playlist_link(text=url):
         info = get_yt_info(url=url)["entries"]  # type: ignore
-        embed = playlist_embed(info=info, username=username)
-        await ctx.send(embed=embed)
-        if ctx.author.voice:
-            Pl[id] = await get_vc(ctx=ctx, vs=ctx.author.voice)
-            for iter in info:
-                set_queue(
-                    id=id,
-                    Qu=Qu,
-                    info=iter,
-                    username=username,
-                )
-            if not Pl[id].is_playing():
-                await play_next(ctx=ctx)
-        else:
-            await ctx.send("Najpierw dołącz do kanału głosowego.")
+        playlist = True
     else:
         if is_youtube_link(text=url):
             info = get_yt_info(url=url)
         else:
             info = get_ytsearch_info(url=url)["entries"][0]  # type: ignore
-        embed = track_embed(
-            text="Dodano",
-            info=info,  # type: ignore
-            username=username,
-        )
+        playlist = False
+    if info:
+        if playlist:
+            embed = playlist_embed(
+                info=info,  # type: ignore
+                username=username,
+            )
+        else:
+            embed = track_embed(
+                text="Dodano",
+                info=info,  # type: ignore
+                username=username,
+            )
         await ctx.send(embed=embed)
         if ctx.author.voice:
             Pl[id] = await get_vc(ctx=ctx, vs=ctx.author.voice)
-            set_queue(id=id, Qu=Qu, info=info, username=username)
+            if playlist:
+                for iter in info:
+                    set_queue(
+                        id=id,
+                        Qu=Qu,
+                        info=iter,
+                        username=username,
+                    )
+            else:
+                set_queue(id=id, Qu=Qu, info=info, username=username)
             if not Pl[id].is_playing():
-                await play_next(ctx)
+                await play_next(ctx=ctx)
         else:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
 
@@ -346,8 +349,9 @@ async def find(ctx, *, url: str) -> None:
         inline=True,
     )
     for i in info:
+        date = str(datetime.timedelta(seconds=int(i["duration"])))
         embed.add_field(
-            name=i["title"],
+            name=f"{i['title']}: {date}",
             value=f"{yt_link}{i['id']}",
             inline=False,
         )
