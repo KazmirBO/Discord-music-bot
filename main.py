@@ -249,7 +249,9 @@ async def play_next(ctx, pos: int = 0) -> None:
                 info=info,
             )
             await ctx.send(embed=embed)
-            music_loop.start(ctx)
+            print(music_loop.is_running())
+            if not music_loop.is_running():
+                music_loop.start(ctx)
         except Exception as err:
             print(f"Wystąpił błąd: {err=}, {type(err)=}")
     else:
@@ -362,10 +364,8 @@ async def find(ctx, *, url: str) -> None:
 async def music_loop(ctx) -> None:
     id = ctx.message.guild.id
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if Pl[id]:
-        if not Pl[id].is_playing():
-            if not Pl[id].is_paused():
-                await play_next(ctx)
+    if Pl[id] and not Pl[id].is_playing() and not Pl[id].is_paused():
+        await play_next(ctx)
 
 
 @bot.command(pass_context=False, aliases=["resume"])
