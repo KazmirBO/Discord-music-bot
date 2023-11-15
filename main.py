@@ -28,7 +28,7 @@ bot = commands.Bot(
 
 man_page = [
     [
-        "+h/help",
+        "+h/help/man",
         "Wyświetla to okno pomocy",
         False,
     ],
@@ -38,47 +38,47 @@ man_page = [
         False,
     ],
     [
-        "+find <tytuł utworu>",
+        "+f/find <tytuł utworu>",
         "Zwraca 5 tytułów i linków do podanego <tytuł utworu>",
         False,
     ],
     [
-        "+pause/resume",
+        "+pr/pause/resume",
         "Wstrzymuje utwór",
         False,
     ],
     [
-        "+skip <numer>",
+        "+sk/skip <numer>",
         "Odtwarza następny utwór/podany <numer> z kolejki",
         False,
     ],
     [
-        "+queue",
+        "+q/queue",
         "Wyświetla kolejkę odtwarzania",
         False,
     ],
     [
-        "+delete <numer>",
+        "+dl/delete <numer>",
         "Usuwa wybrany <numer> z kolejki odtwarzania",
         False,
     ],
     [
-        "+stop",
+        "+s/stop",
         "Zatrzymuje odtwarzanie i czyści kolejkę",
         False,
     ],
     [
-        "+disconnect",
+        "+d/disconnect",
         "Rozłącza bota z kanału",
         False,
     ],
     [
-        "+roll <ilość kości> <rodzaj kości>",
+        "+r/roll <ilość kości> <rodzaj kości>",
         "Wykonuje rzut/y kości",
         False,
     ],
     [
-        "+clear <ilość>",
+        "+c/clear <ilość>",
         "Usuwa ostatnie <ilość> wiadomości",
         False,
     ],
@@ -275,8 +275,8 @@ async def music_loop(ctx) -> None:
         await play_next(ctx)
 
 
-@bot.command(aliases=["h"], pass_context=False)
-async def help(ctx) -> None:
+@bot.command(aliases=["h", "help", "man"], pass_context=False)
+async def _pomoc(ctx) -> None:
     await ctx.channel.purge(limit=1)
     embed = discord.Embed(
         title="Lista komend:",
@@ -295,8 +295,8 @@ async def help(ctx) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True, aliases=["p"])
-async def play(ctx, *, url: str) -> None:
+@bot.command(pass_context=True, aliases=["p", "play"])
+async def _graj(ctx, *, url: str) -> None:
     await ctx.channel.purge(limit=1)
     username = ctx.message.author.display_name
     id = ctx.message.guild.id
@@ -340,8 +340,8 @@ async def play(ctx, *, url: str) -> None:
             await ctx.send("Najpierw dołącz do kanału głosowego.")
 
 
-@bot.command(pass_context=True)
-async def find(ctx, *, url: str) -> None:
+@bot.command(pass_context=True, aliases=["f", "find"])
+async def _szukaj(ctx, *, url: str) -> None:
     await ctx.channel.purge(limit=1)
     info = get_ytsearch_info(url=url, ilosc="5")["entries"]  # type: ignore
     username = ctx.message.author.display_name
@@ -364,8 +364,8 @@ async def find(ctx, *, url: str) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=False, aliases=["resume"])
-async def pause(ctx) -> None:
+@bot.command(pass_context=False, aliases=["pr", "pause", "resume"])
+async def _pauza(ctx) -> None:
     await ctx.channel.purge(limit=1)
     id = ctx.message.guild.id
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -379,8 +379,8 @@ async def pause(ctx) -> None:
         await ctx.send("Wystąpił błąd! Nie ma czego wstrzymać albo wznowić.")
 
 
-@bot.command(pass_context=True)
-async def skip(ctx, pos: int = 1) -> None:
+@bot.command(pass_context=True, aliases=["sk", "skip"])
+async def _pomin(ctx, pos: int = 1) -> None:
     await ctx.channel.purge(limit=1)
     id = ctx.message.guild.id
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -394,8 +394,8 @@ async def skip(ctx, pos: int = 1) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=False)
-async def queue(ctx) -> None:
+@bot.command(pass_context=False, aliases=["q", "queue"])
+async def _kolejka(ctx) -> None:
     await ctx.channel.purge(limit=1)
     id = ctx.message.guild.id
     if id in Qu and Qu[id] != []:
@@ -420,8 +420,8 @@ async def queue(ctx) -> None:
         await ctx.send("Kolejka jest pusta.")
 
 
-@bot.command(pass_context=True)
-async def delete(ctx, pos=None) -> None:
+@bot.command(pass_context=True, aliases=["dl", "delete"])
+async def _usun(ctx, pos=None) -> None:
     await ctx.channel.purge(limit=1)
     id = ctx.message.guild.id
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -440,8 +440,8 @@ async def delete(ctx, pos=None) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=False)
-async def stop(ctx) -> None:
+@bot.command(pass_context=False, aliases=["s", "stop"])
+async def _zatrzymaj(ctx) -> None:
     await ctx.channel.purge(limit=1)
     id = ctx.message.guild.id
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -449,8 +449,8 @@ async def stop(ctx) -> None:
     Qu[ctx.message.guild.id].clear()
 
 
-@bot.command(pass_context=False)
-async def disconnect(ctx) -> None:
+@bot.command(pass_context=False, aliases=["d", "disconnect"])
+async def _rozlacz(ctx) -> None:
     await ctx.channel.purge(limit=1)
     id = ctx.message.guild.id
     Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
@@ -461,8 +461,8 @@ async def disconnect(ctx) -> None:
         await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
 
 
-@bot.command(pass_context=True)
-async def roll(ctx, ilosc: int, kosc: int) -> None:
+@bot.command(pass_context=True, aliases=["r", "roll"])
+async def _kosc(ctx, ilosc: int, kosc: int) -> None:
     await ctx.channel.purge(limit=1)
     embed = discord.Embed(
         title="Rut kością",
@@ -479,8 +479,8 @@ async def roll(ctx, ilosc: int, kosc: int) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command(pass_context=True)
-async def clear(ctx, num: int = 0) -> None:
+@bot.command(pass_context=True, aliases=["c", "clear"])
+async def _czysc(ctx, num: int = 0) -> None:
     await ctx.channel.purge(limit=num + 1)
 
 
