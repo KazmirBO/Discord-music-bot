@@ -242,18 +242,14 @@ async def play_next(ctx, pos: int = 0) -> None:
     id = ctx.message.guild.id
     if Qu[id] != []:
         info = Qu[id].pop(pos)
-        try:
-            Pl[id].play(discord.FFmpegPCMAudio(f"./files/{info['id']}.webm"))
-            embed = track_embed(
-                text="Teraz odtwarzane",
-                info=info,
-            )
-            await ctx.send(embed=embed)
-            print(music_loop.is_running())
-            if not music_loop.is_running():
-                music_loop.start(ctx)
-        except Exception as err:
-            print(f"Wystąpił błąd: {err=}, {type(err)=}")
+        Pl[id].play(discord.FFmpegPCMAudio(f"./files/{info['id']}.webm"))
+        embed = track_embed(
+            text="Teraz odtwarzane",
+            info=info,
+        )
+        await ctx.send(embed=embed)
+        if not music_loop.is_running():
+            music_loop.start(ctx)
     else:
         await Pl[id].disconnect()
 
@@ -269,6 +265,14 @@ async def on_voice_state_update(member, before, after):
     voice_state = member.guild.voice_client
     if voice_state is not None and len(voice_state.channel.members) == 1:
         await voice_state.disconnect()
+
+
+@tasks.loop(seconds=5.0)
+async def music_loop(ctx) -> None:
+    id = ctx.message.guild.id
+    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+    if Pl[id] and not Pl[id].is_playing() and not Pl[id].is_paused():
+        await play_next(ctx)
 
 
 @bot.command(aliases=["h"], pass_context=False)
@@ -358,14 +362,6 @@ async def find(ctx, *, url: str) -> None:
             inline=False,
         )
     await ctx.send(embed=embed)
-
-
-@tasks.loop(seconds=5.0)
-async def music_loop(ctx) -> None:
-    id = ctx.message.guild.id
-    Pl[id] = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-    if Pl[id] and not Pl[id].is_playing() and not Pl[id].is_paused():
-        await play_next(ctx)
 
 
 @bot.command(pass_context=False, aliases=["resume"])
