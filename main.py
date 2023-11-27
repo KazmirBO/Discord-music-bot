@@ -244,8 +244,7 @@ async def play_next(ctx, pos: int = 0) -> None:
             info=info,
         )
         await ctx.send(embed=embed)
-        if not music_loop.is_running():
-            music_loop.start(ctx)
+        music_loop.start(ctx)
     else:
         await Pl[id].disconnect()
 
