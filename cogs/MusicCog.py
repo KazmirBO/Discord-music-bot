@@ -243,9 +243,10 @@ class MusicCog(commands.Cog):
                 self.Pl[id].play(
                     dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
                 )
-                print("Przed")
-                self.Pl[id].seek(seconds)
-                print("Po")
+                try:
+                    await self.Pl[id].seek(seconds)
+                except Exception as e:
+                    print(f"Wystąpił błąd przy próbie przesunięcia utworu: {e}")
                 embed = self.track_embed(
                     text="Dodano",
                     info=self.info,  # type: ignore
