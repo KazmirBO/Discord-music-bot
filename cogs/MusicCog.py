@@ -243,7 +243,7 @@ class MusicCog(commands.Cog):
                 self.Pl[id].play(
                     dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
                 )
-                self.Pl[id].seek(seconds)
+                await self.Pl[id].seek(seconds)
                 embed = self.track_embed(
                     text="Dodano",
                     info=self.info,  # type: ignore
