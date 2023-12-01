@@ -7,7 +7,7 @@ import datetime as dt
 from discord.ext import commands, tasks
 
 
-class AdminCog(commands.Cog):
+class MusicCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.Qu = {}
@@ -332,7 +332,3 @@ class AdminCog(commands.Cog):
             self.Qu[ctx.message.guild.id].clear()
         else:
             await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
-
-
-def setup(bot) -> None:
-    bot.add_cog(AdminCog(bot))

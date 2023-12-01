@@ -32,7 +32,3 @@ class FunCog(commands.Cog):
                 value=random.randint(1, kosc),
             )
         await ctx.send(embed=embed)
-
-
-def setup(bot) -> None:
-    bot.add_cog(FunCog(bot))

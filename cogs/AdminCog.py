@@ -72,6 +72,17 @@ class AdminCog(commands.Cog):
         id = ctx.message.guild.id
         return username, id
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        print("Bot wystartował!")
+
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        del after, before
+        voice_state = member.guild.voice_client
+        if voice_state is not None and len(voice_state.channel.members) == 1:
+            await voice_state.disconnect()
+
     @commands.command(aliases=["h", "help", "man"], pass_context=False)
     async def _pomoc(self, ctx) -> None:
         _, _ = await self.get_user_id(ctx=ctx)
@@ -94,7 +105,3 @@ class AdminCog(commands.Cog):
     @commands.command(pass_context=True, aliases=["c", "clear"])
     async def _czysc(self, ctx, num: int = 0) -> None:
         await ctx.channel.purge(limit=num + 1)
-
-
-def setup(bot) -> None:
-    bot.add_cog(AdminCog(bot))
