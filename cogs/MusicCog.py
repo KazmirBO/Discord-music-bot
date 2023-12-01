@@ -10,6 +10,7 @@ from discord.ext import commands, tasks
 class MusicCog(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
+        self.info = {}
         self.Qu = {}
         self.Pl = {}
         self.ydl_opts = {
@@ -151,11 +152,13 @@ class MusicCog(commands.Cog):
     async def play_next(self, ctx, pos: int = 0) -> None:
         id = ctx.message.guild.id
         if self.Qu[id] != []:
-            info = self.Qu[id].pop(pos)
-            self.Pl[id].play(dc.FFmpegPCMAudio(f"./files/{info['id']}.webm"))
+            self.info[id] = self.Qu[id].pop(pos)
+            self.Pl[id].play(
+                dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
+            )
             embed = self.track_embed(
                 text="Teraz odtwarzane",
-                info=info,
+                info=self.info[id],
             )
             await ctx.send(embed=embed)
             self.music_loop.start(ctx)
@@ -225,6 +228,33 @@ class MusicCog(commands.Cog):
                     await self.play_next(ctx=ctx)
             else:
                 await ctx.send("Najpierw dołącz do kanału głosowego.")
+
+    def parse_time(self, time: str) -> int:
+        h, m, s = map(int, time.split(":"))
+        return h * 3600 + m * 60 + s
+
+    @commands.command(pass_context=True, aliases=["g", "goto"])
+    async def _przesun(self, ctx, time: str) -> None:
+        username, id = await self.get_user_id(ctx=ctx)
+        if self.Pl[id].is_playing():
+            try:
+                seconds = self.parse_time(time=time)
+                self.Pl[id].stop()
+                self.Pl[id].play(
+                    dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
+                )
+                self.Pl[id].seek(seconds)
+                embed = self.track_embed(
+                    text="Dodano",
+                    info=self.info,  # type: ignore
+                    username=username,
+                )
+                await ctx.send(embed=embed)
+            except ValueError:
+                await ctx.send("Podano nieprawidłowy format czasu.")
+
+        else:
+            await ctx.send("Nie ma czego przesunąć.")
 
     @commands.command(pass_context=True, aliases=["f", "find"])
     async def _szukaj(self, ctx, *, url: str) -> None:
