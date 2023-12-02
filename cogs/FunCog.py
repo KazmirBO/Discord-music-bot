@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import discord
+import discord as dc
 import random
 from discord.ext import commands
 
@@ -19,7 +19,7 @@ class FunCog(commands.Cog):
     @commands.command(pass_context=True, aliases=["r", "roll"])
     async def _kosc(self, ctx, ilosc: int, kosc: int) -> None:
         _, _ = await self.get_user_id(ctx=ctx)
-        embed = discord.Embed(
+        embed = dc.Embed(
             title="Rut kością",
             color=0x4DFF00,
         )

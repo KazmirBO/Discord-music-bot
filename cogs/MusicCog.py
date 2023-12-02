@@ -229,36 +229,6 @@ class MusicCog(commands.Cog):
             else:
                 await ctx.send("Najpierw dołącz do kanału głosowego.")
 
-    def parse_time(self, time: str) -> int:
-        h, m, s = map(int, time.split(":"))
-        return h * 3600 + m * 60 + s
-
-    @commands.command(pass_context=True, aliases=["g", "goto"])
-    async def _przesun(self, ctx, time: str) -> None:
-        username, id = await self.get_user_id(ctx=ctx)
-        if self.Pl[id].is_playing():
-            try:
-                seconds = self.parse_time(time=time)
-                self.Pl[id].stop()
-                self.Pl[id].play(
-                    dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
-                )
-                try:
-                    await self.Pl[id].seek(seconds)
-                except Exception as e:
-                    print(f"Wystąpił błąd przy próbie przesunięcia utworu: {e}")
-                embed = self.track_embed(
-                    text="Dodano",
-                    info=self.info,  # type: ignore
-                    username=username,
-                )
-                await ctx.send(embed=embed)
-            except ValueError:
-                await ctx.send("Podano nieprawidłowy format czasu.")
-
-        else:
-            await ctx.send("Nie ma czego przesunąć.")
-
     @commands.command(pass_context=True, aliases=["f", "find"])
     async def _szukaj(self, ctx, *, url: str) -> None:
         username, _ = await self.get_user_id(ctx=ctx)

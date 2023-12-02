@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import discord
+import discord as dc
 from discord.ext import commands
 
 
@@ -86,7 +86,7 @@ class AdminCog(commands.Cog):
     @commands.command(aliases=["h", "help", "man"], pass_context=False)
     async def _pomoc(self, ctx) -> None:
         _, _ = await self.get_user_id(ctx=ctx)
-        embed = discord.Embed(
+        embed = dc.Embed(
             title="Lista komend:",
             color=0x4DFF00,
         )
