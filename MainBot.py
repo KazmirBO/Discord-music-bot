@@ -37,3 +37,6 @@ class MusicBot:
         await self.bot.add_cog(FunCog(bot=self.bot))
         await self.bot.add_cog(MusicCog(bot=self.bot))
         await self.bot.start(token=self.TOKEN)  # type: ignore
+
+
+MusicBot()
