@@ -35,16 +35,14 @@ class MusicCog(commands.Cog):
         self.yt_link = "https://www.youtube.com/watch?v="
 
     def is_youtube_link(self, text):
-        youtube_link_pattern = re.compile(
-            r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$"
-        )
-        return youtube_link_pattern.match(text) is not None
+        link = re.compile(r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$")
+        return link.match(text) is not None
 
     def is_youtube_playlist_link(self, text):
-        youtube_playlist_pattern = re.compile(
+        link = re.compile(
             r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/playlist\?list=.+$"
         )
-        return youtube_playlist_pattern.match(text) is not None
+        return link.match(text) is not None
 
     def track_info(self, info: list, username: str):
         return {
@@ -63,19 +61,9 @@ class MusicCog(commands.Cog):
 
     def set_queue(self, id: int, Qu, info, username: str) -> None:
         if id in self.Qu:
-            self.Qu[id].append(
-                self.track_info(
-                    info=info,
-                    username=username,
-                )
-            )
+            self.Qu[id].append(self.track_info(info=info, username=username))
         else:
-            Qu[id] = [
-                self.track_info(
-                    info=info,
-                    username=username,
-                )
-            ]
+            Qu[id] = [self.track_info(info=info, username=username)]
 
     def get_yts_info(self, url: str, ilosc: str = ""):
         return self.ydl.extract_info(f"ytsearch{ilosc}:'{url}'")
@@ -88,11 +76,7 @@ class MusicCog(commands.Cog):
             title=f"{text}: {info['title']}",  # type: ignore
             color=dc.Colour.random(),
         )
-        embed.add_field(
-            name="Kto dodał",
-            value=username,
-            inline=True,
-        )
+        embed.add_field(name="Kto dodał", value=username, inline=True)
         embed.add_field(
             name="Uploader",
             value=info["uploader"],  # type: ignore
@@ -118,15 +102,8 @@ class MusicCog(commands.Cog):
         if not username:
             username = info["user"]  # type: ignore
 
-        embed = dc.Embed(
-            title="Dodano",
-            color=dc.Colour.random(),
-        )
-        embed.add_field(
-            name="Kto dodał",
-            value=username,
-            inline=False,
-        )
+        embed = dc.Embed(title="Dodano", color=dc.Colour.random())
+        embed.add_field(name="Kto dodał", value=username, inline=False)
         for iter in info:
             embed.add_field(
                 name="Uploader",
@@ -174,10 +151,7 @@ class MusicCog(commands.Cog):
     @tasks.loop(seconds=5.0)
     async def music_loop(self, ctx) -> None:
         id = ctx.message.guild.id
-        self.Pl[id] = dc.utils.get(
-            self.bot.voice_clients,
-            guild=ctx.guild,
-        )
+        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if self.Pl[id]:
             if not self.Pl[id].is_playing() and not self.Pl[id].is_paused():
                 await self.play_next(ctx)
@@ -237,11 +211,7 @@ class MusicCog(commands.Cog):
             title="Wybierz link interesującego ciebie utworu:",
             color=dc.Colour.random(),
         )
-        embed.add_field(
-            name="Kto dodał",
-            value=username,
-            inline=True,
-        )
+        embed.add_field(name="Kto dodał", value=username, inline=True)
         for i in info:
             date = str(dt.timedelta(seconds=int(i["duration"])))
             embed.add_field(
