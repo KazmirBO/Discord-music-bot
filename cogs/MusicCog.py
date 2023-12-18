@@ -153,11 +153,7 @@ class MusicCog(commands.Cog):
         id = ctx.message.guild.id
         self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if self.Pl[id]:
-            print("Istnieje")
             if not self.Pl[id].is_playing() and not self.Pl[id].is_paused():
-                print(f"playing {self.Pl[id].is_playing()}")
-                print(f"paused {self.Pl[id].is_paused()}")
-                print("Gra następny")
                 await self.play_next(ctx)
 
     @commands.command(pass_context=True, aliases=["p", "play"])
