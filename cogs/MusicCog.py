@@ -138,7 +138,7 @@ class MusicCog(commands.Cog):
                 info=self.info[id],
             )
             await ctx.send(embed=embed)
-            self.music_loop.start(ctx)
+            self.music_loop.restart(ctx)
         else:
             await self.Pl[id].disconnect()
 
@@ -163,49 +163,57 @@ class MusicCog(commands.Cog):
     @commands.command(pass_context=True, aliases=["p", "play"])
     async def _graj(self, ctx, *, url: str) -> None:
         username, id = await self.get_user_id(ctx=ctx)
-        if self.is_youtube_playlist_link(text=url):
-            info = self.ydl.extract_info(url)["entries"]  # type: ignore
-            playlist = True
-        else:
-            if self.is_youtube_link(text=url):
-                info = self.ydl.extract_info(url)
+        if self.is_youtube_playlist_link(text=url) or self.is_youtube_link(
+            text=url,
+        ):
+            if self.is_youtube_playlist_link(text=url):
+                info = self.ydl.extract_info(url)["entries"]  # type: ignore
+                playlist = True
             else:
-                info = self.get_yts_info(url=url)["entries"][0]  # type: ignore
-            playlist = False
-        if info:
-            if playlist:
-                embed = self.playlist_embed(
-                    info=info,  # type: ignore
-                    username=username,
-                )
-            else:
-                embed = self.track_embed(
-                    text="Dodano",
-                    info=info,  # type: ignore
-                    username=username,
-                )
-            await ctx.send(embed=embed)
-            if ctx.author.voice:
-                self.Pl[id] = await self.get_vc(ctx=ctx, vs=ctx.author.voice)
+                if self.is_youtube_link(text=url):
+                    info = self.ydl.extract_info(url)
+                else:
+                    info = self.get_yts_info(url=url)["entries"][0]  # type: ignore
+                playlist = False
+            if info:
                 if playlist:
-                    for iter in info:
+                    embed = self.playlist_embed(
+                        info=info,  # type: ignore
+                        username=username,
+                    )
+                else:
+                    embed = self.track_embed(
+                        text="Dodano",
+                        info=info,  # type: ignore
+                        username=username,
+                    )
+                await ctx.send(embed=embed)
+                if ctx.author.voice:
+                    self.Pl[id] = await self.get_vc(
+                        ctx=ctx,
+                        vs=ctx.author.voice,
+                    )
+                    if playlist:
+                        for iter in info:
+                            self.set_queue(
+                                id=id,
+                                Qu=self.Qu,
+                                info=iter,
+                                username=username,
+                            )
+                    else:
                         self.set_queue(
                             id=id,
                             Qu=self.Qu,
-                            info=iter,
+                            info=info,
                             username=username,
                         )
+                    if not self.Pl[id].is_playing():
+                        await self.play_next(ctx=ctx)
                 else:
-                    self.set_queue(
-                        id=id,
-                        Qu=self.Qu,
-                        info=info,
-                        username=username,
-                    )
-                if not self.Pl[id].is_playing():
-                    await self.play_next(ctx=ctx)
-            else:
-                await ctx.send("Najpierw dołącz do kanału głosowego.")
+                    await ctx.send("Najpierw dołącz do kanału głosowego.")
+        else:
+            ctx.send(f"Nie możemy uruchomić zapytania. Twoje zapytanie: {url}")
 
     @commands.command(pass_context=True, aliases=["f", "find"])
     async def _szukaj(self, ctx, *, url: str) -> None:
