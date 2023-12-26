@@ -170,57 +170,52 @@ class MusicCog(commands.Cog):
     @commands.command(pass_context=True, aliases=["p", "play"])
     async def _graj(self, ctx, *, url: str) -> None:
         username, id = await self.get_user_id(ctx=ctx)
-        if self.is_youtube_playlist_link(text=url) or self.is_youtube_link(
-            text=url,
-        ):
-            if self.is_youtube_playlist_link(text=url):
-                info = self.ydl.extract_info(url)["entries"]  # type: ignore
-                playlist = True
+        if self.is_youtube_playlist_link(text=url):
+            info = self.ydl.extract_info(url)["entries"]  # type: ignore
+            playlist = True
+        else:
+            if self.is_youtube_link(text=url):
+                info = self.ydl.extract_info(url)
             else:
-                if self.is_youtube_link(text=url):
-                    info = self.ydl.extract_info(url)
-                else:
-                    info = self.get_yts_info(url=url)["entries"][0]  # type: ignore
-                playlist = False
-            if info:
+                info = self.get_yts_info(url=url)["entries"][0]  # type: ignore
+            playlist = False
+        if info:
+            if playlist:
+                embed = self.playlist_embed(
+                    info=info,  # type: ignore
+                    username=username,
+                )
+            else:
+                embed = self.track_embed(
+                    text="Dodano",
+                    info=info,  # type: ignore
+                    username=username,
+                )
+            await ctx.send(embed=embed)
+            if ctx.author.voice:
+                self.Pl[id] = await self.get_vc(
+                    ctx=ctx,
+                    vs=ctx.author.voice,
+                )
                 if playlist:
-                    embed = self.playlist_embed(
-                        info=info,  # type: ignore
-                        username=username,
-                    )
-                else:
-                    embed = self.track_embed(
-                        text="Dodano",
-                        info=info,  # type: ignore
-                        username=username,
-                    )
-                await ctx.send(embed=embed)
-                if ctx.author.voice:
-                    self.Pl[id] = await self.get_vc(
-                        ctx=ctx,
-                        vs=ctx.author.voice,
-                    )
-                    if playlist:
-                        for iter in info:
-                            self.set_queue(
-                                id=id,
-                                Qu=self.Qu,
-                                info=iter,
-                                username=username,
-                            )
-                    else:
+                    for iter in info:
                         self.set_queue(
                             id=id,
                             Qu=self.Qu,
-                            info=info,
+                            info=iter,
                             username=username,
                         )
-                    if not self.Pl[id].is_playing():
-                        await self.play_next(ctx=ctx)
                 else:
-                    await ctx.send("Najpierw dołącz do kanału głosowego.")
-        else:
-            await ctx.send(f"Nie możemy uruchomić: {url}")
+                    self.set_queue(
+                        id=id,
+                        Qu=self.Qu,
+                        info=info,
+                        username=username,
+                    )
+                if not self.Pl[id].is_playing():
+                    await self.play_next(ctx=ctx)
+            else:
+                await ctx.send("Najpierw dołącz do kanału głosowego.")
 
     @commands.command(pass_context=True, aliases=["f", "find"])
     async def _szukaj(self, ctx, *, url: str) -> None:
@@ -269,7 +264,7 @@ class MusicCog(commands.Cog):
     @commands.command(pass_context=False, aliases=["q", "queue"])
     async def _kolejka(self, ctx) -> None:
         _, id = await self.get_user_id(ctx=ctx)
-        if id in self.Qu and self.Qu[id] != []:
+        if id in self.Qu and (self.Qu[id] != [] or self.info[id]):
             embed = dc.Embed(
                 title="Kolejka odtwarzania:",
                 color=dc.Colour.random(),
@@ -290,19 +285,19 @@ class MusicCog(commands.Cog):
                     ),
                     inline=False,
                 )
-
-            for i, info in enumerate(self.Qu[id], start=1):
-                date = str(dt.timedelta(seconds=int(info["duration"])))
-                embed.add_field(
-                    name=f"Utwór w kolejce: {i}",
-                    value="{0}\n{1}\n{2}\n{3}".format(
-                        info["title"],
-                        info["uploader"],
-                        date,
-                        f"{self.yt_link}{info['id']}",
-                    ),
-                    inline=False,
-                )
+            if self.Qu[id] != []:
+                for i, info in enumerate(self.Qu[id], start=1):
+                    date = str(dt.timedelta(seconds=int(info["duration"])))
+                    embed.add_field(
+                        name=f"Utwór w kolejce: {i}",
+                        value="{0}\n{1}\n{2}\n{3}".format(
+                            info["title"],
+                            info["uploader"],
+                            date,
+                            f"{self.yt_link}{info['id']}",
+                        ),
+                        inline=False,
+                    )
             await ctx.send(embed=embed)
         else:
             await ctx.send("Kolejka jest pusta.")
