@@ -13,6 +13,7 @@ class MusicCog(commands.Cog):
         self.info = {}
         self.Qu = {}
         self.Pl = {}
+        self.Loop = {}
         self.ydl_opts = {
             "format": "bestaudio[ext=webm]/best",
             "outtmpl": "files/%(id)s.%(ext)s",
@@ -138,11 +139,17 @@ class MusicCog(commands.Cog):
                 info=self.info[id],
             )
             await ctx.send(embed=embed)
-            if self.music_loop.is_running():
-                self.music_loop.restart(ctx)
+            self.Loop[id] = self.music_loop
+            if self.Loop[id].is_running():
+                print("Restart przed")
+                self.Loop[id].restart(ctx)
+                print("Restart po")
             else:
-                self.music_loop.start(ctx)
+                print("Start przed")
+                self.Loop[id].start(ctx)
+                print("Start po")
         else:
+            del self.info[id]
             await self.Pl[id].disconnect()
 
     async def get_user_id(self, ctx) -> tuple:
@@ -213,7 +220,7 @@ class MusicCog(commands.Cog):
                 else:
                     await ctx.send("Najpierw dołącz do kanału głosowego.")
         else:
-            ctx.send(f"Nie możemy uruchomić zapytania. Twoje zapytanie: {url}")
+            await ctx.send(f"Nie możemy uruchomić: {url}")
 
     @commands.command(pass_context=True, aliases=["f", "find"])
     async def _szukaj(self, ctx, *, url: str) -> None:
@@ -267,6 +274,23 @@ class MusicCog(commands.Cog):
                 title="Kolejka odtwarzania:",
                 color=dc.Colour.random(),
             )
+            if self.info[id]:
+                date = str(
+                    dt.timedelta(
+                        seconds=int(self.info[id]["duration"]),
+                    )
+                )
+                embed.add_field(
+                    name="Aktualnie odtwarzany:",
+                    value="{0}\n{1}\n{2}\n{3}".format(
+                        self.info[id]["title"],
+                        self.info[id]["uploader"],
+                        date,
+                        f"{self.yt_link}{self.info[id]['id']}",
+                    ),
+                    inline=False,
+                )
+
             for i, info in enumerate(self.Qu[id], start=1):
                 date = str(dt.timedelta(seconds=int(info["duration"])))
                 embed.add_field(
