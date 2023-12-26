@@ -141,13 +141,9 @@ class MusicCog(commands.Cog):
             await ctx.send(embed=embed)
             self.Loop[id] = self.music_loop
             if self.Loop[id].is_running():
-                print("Restart przed")
                 self.Loop[id].restart(ctx)
-                print("Restart po")
             else:
-                print("Start przed")
                 self.Loop[id].start(ctx)
-                print("Start po")
         else:
             del self.info[id]
             await self.Pl[id].disconnect()
@@ -162,7 +158,6 @@ class MusicCog(commands.Cog):
     async def music_loop(self, ctx) -> None:
         id = ctx.message.guild.id
         self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        print("Działa")
         if self.Pl[id]:
             if not self.Pl[id].is_playing() and not self.Pl[id].is_paused():
                 await self.play_next(ctx)
