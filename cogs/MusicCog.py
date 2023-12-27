@@ -145,7 +145,7 @@ class MusicCog(commands.Cog):
             else:
                 self.Loop[id].start(ctx)
         else:
-            del self.info[id]
+            self.info[id].clear()
             await self.Pl[id].disconnect()
 
     async def get_user_id(self, ctx) -> tuple:
@@ -327,6 +327,7 @@ class MusicCog(commands.Cog):
         _, id = await self.get_user_id(ctx=ctx)
         self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if self.Pl[id] is not None:
+            self.info[id].clear()
             await self.Pl[id].disconnect()
             self.Qu[ctx.message.guild.id].clear()
         else:
