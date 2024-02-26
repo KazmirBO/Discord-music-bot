@@ -4,7 +4,7 @@ import discord as dc
 import os
 from discord.ext import commands
 from dotenv import load_dotenv
-from yt_dlp.utils import asyncio
+import asyncio
 
 from cogs.AdminCog import AdminCog
 from cogs.FunCog import FunCog
