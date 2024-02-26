@@ -1,6 +1,7 @@
 *.webm
 .env
 venv
+.venv
 *test*
 downloads
 files
