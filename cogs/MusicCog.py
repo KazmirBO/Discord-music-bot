@@ -255,7 +255,7 @@ class MusicCog(commands.Cog):
     @commands.command(pass_context=False, aliases=["q", "queue"])
     async def _kolejka(self, ctx) -> None:
         _, id = await self.get_user_id(ctx=ctx)
-        if id in self.Qu and (self.Qu[id] != [] or self.info[id]):
+        if id in self.Qu and (self.Qu[id] or self.info[id]):
             embed = dc.Embed(
                 title="Kolejka odtwarzania:",
                 color=dc.Colour.random(),
@@ -268,10 +268,11 @@ class MusicCog(commands.Cog):
                 )
                 embed.add_field(
                     name="Aktualnie odtwarzany:",
-                    value="{0}\n{1}\n{2}\n{3}".format(
+                    value="{0}\n{1}\n{2}\n{3}\n{4}".format(
                         self.info[id]["title"],
                         self.info[id]["uploader"],
                         date,
+                        self.info[id]["user"],
                         f"{self.yt_link}{self.info[id]['id']}",
                     ),
                     inline=False,
@@ -281,10 +282,11 @@ class MusicCog(commands.Cog):
                     date = str(dt.timedelta(seconds=int(info["duration"])))
                     embed.add_field(
                         name=f"Utwór w kolejce: {i}",
-                        value="{0}\n{1}\n{2}\n{3}".format(
+                        value="{0}\n{1}\n{2}\n{3}\n{4}".format(
                             info["title"],
                             info["uploader"],
                             date,
+                            info["user"],
                             f"{self.yt_link}{info['id']}",
                         ),
                         inline=False,
