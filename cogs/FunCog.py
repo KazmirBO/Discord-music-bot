@@ -10,8 +10,13 @@ class FunCog(commands.Cog):
         super().__init__()
         self.bot = bot
 
+    async def get_user_id(self, ctx) -> tuple:
+        await ctx.channel.purge(limit=1)
+        return ctx.message.author.display_name, ctx.message.guild.id
+
     @commands.command(pass_context=True, aliases=["r", "roll"])
     async def _rzut_koscia(self, ctx, ilosc: int, kosc: int) -> None:
+        _, _ = await self.get_user_id(ctx=ctx)
         embed = dc.Embed(
             title="Rut kością",
             color=0x4DFF00,
