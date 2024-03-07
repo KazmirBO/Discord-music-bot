@@ -60,11 +60,11 @@ class MusicCog(commands.Cog):
             return await vs.channel.connect()
         return dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
 
-    def set_queue(self, id: int, Qu, info, username: str) -> None:
+    def set_queue(self, id: int, info, username: str) -> None:
         if id in self.Qu:
             self.Qu[id].append(self.track_info(info=info, username=username))
         else:
-            Qu[id] = [self.track_info(info=info, username=username)]
+            self.Qu[id] = [self.track_info(info=info, username=username)]
 
     def get_yts_info(self, url: str, ilosc: str = ""):
         return self.ydl.extract_info(f"ytsearch{ilosc}:'{url}'")
@@ -129,7 +129,7 @@ class MusicCog(commands.Cog):
 
     async def play_next(self, ctx, pos: int = 0) -> None:
         id = ctx.message.guild.id
-        if self.Qu[id] != []:
+        if self.Qu[id]:
             self.info[id] = self.Qu[id].pop(pos)
             self.Pl[id].play(
                 dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
@@ -150,9 +150,7 @@ class MusicCog(commands.Cog):
 
     async def get_user_id(self, ctx) -> tuple:
         await ctx.channel.purge(limit=1)
-        username = ctx.message.author.display_name
-        id = ctx.message.guild.id
-        return username, id
+        return ctx.message.author.display_name, ctx.message.guild.id
 
     @tasks.loop(seconds=5.0)
     async def music_loop(self, ctx) -> None:
@@ -163,7 +161,7 @@ class MusicCog(commands.Cog):
                 await self.play_next(ctx)
 
     @commands.command(pass_context=True, aliases=["p", "play"])
-    async def _graj(self, ctx, *, url: str) -> None:
+    async def _odtworz_muzyke(self, ctx, *, url: str) -> None:
         username, id = await self.get_user_id(ctx=ctx)
         if self.is_youtube_playlist_link(text=url):
             info = self.ydl.extract_info(url)["entries"]  # type: ignore
@@ -196,14 +194,12 @@ class MusicCog(commands.Cog):
                     for iter in info:
                         self.set_queue(
                             id=id,
-                            Qu=self.Qu,
                             info=iter,
                             username=username,
                         )
                 else:
                     self.set_queue(
                         id=id,
-                        Qu=self.Qu,
                         info=info,
                         username=username,
                     )
@@ -231,7 +227,7 @@ class MusicCog(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(pass_context=False, aliases=["pr", "pause", "resume"])
-    async def _pauza(self, ctx) -> None:
+    async def _zarzadzaj_odtwarzaniem(self, ctx) -> None:
         _, id = await self.get_user_id(ctx=ctx)
         self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if self.Pl[id] is not None and self.Pl[id].is_playing():
@@ -280,7 +276,7 @@ class MusicCog(commands.Cog):
                     ),
                     inline=False,
                 )
-            if self.Qu[id] != []:
+            if self.Qu[id]:
                 for i, info in enumerate(self.Qu[id], start=1):
                     date = str(dt.timedelta(seconds=int(info["duration"])))
                     embed.add_field(

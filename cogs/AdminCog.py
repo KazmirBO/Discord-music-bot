@@ -68,9 +68,7 @@ class AdminCog(commands.Cog):
 
     async def get_user_id(self, ctx) -> tuple:
         await ctx.channel.purge(limit=1)
-        username = ctx.message.author.display_name
-        id = ctx.message.guild.id
-        return username, id
+        return ctx.message.author.display_name, ctx.message.guild.id
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -78,14 +76,12 @@ class AdminCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
-        del after, before
         voice_state = member.guild.voice_client
         if voice_state is not None and len(voice_state.channel.members) == 1:
             await voice_state.disconnect()
 
     @commands.command(aliases=["h", "help", "man"], pass_context=False)
     async def _pomoc(self, ctx) -> None:
-        _, _ = await self.get_user_id(ctx=ctx)
         embed = dc.Embed(
             title="Lista komend:",
             color=0x4DFF00,
@@ -93,15 +89,18 @@ class AdminCog(commands.Cog):
         embed.set_author(
             name="Manual",
         )
-        for iter in self.man_page:
+        for command in self.man_page:
             embed.add_field(
-                name=iter[0],
-                value=iter[1],
-                inline=iter[2],
+                name=command[0],
+                value=command[1],
+                inline=command[2],
             )
 
         await ctx.send(embed=embed)
 
     @commands.command(pass_context=True, aliases=["c", "clear"])
     async def _czysc(self, ctx, num: int = 0) -> None:
-        await ctx.channel.purge(limit=num + 1)
+        try:
+            await ctx.channel.purge(limit=num + 1)
+        except Exception as e:
+            await ctx.send(f"Wystąpił błąd: {e}")
