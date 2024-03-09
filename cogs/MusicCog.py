@@ -35,17 +35,17 @@ class MusicCog(commands.Cog):
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
         self.yt_link = "https://www.youtube.com/watch?v="
 
-    def is_youtube_link(self, text):
+    def is_youtube_link(self, text) -> bool:
         link = re.compile(r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$")
         return link.match(text) is not None
 
-    def is_youtube_playlist_link(self, text):
+    def is_youtube_playlist_link(self, text) -> bool:
         link = re.compile(
             r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/playlist\?list=.+$"
         )
         return link.match(text) is not None
 
-    def track_info(self, info: list, username: str):
+    def track_info(self, info: list, username: str) -> dict:
         return {
             "url": f"{self.yt_link}{info['id']}",  # type: ignore
             "title": info["title"],  # type: ignore
