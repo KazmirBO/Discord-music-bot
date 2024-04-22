@@ -4,6 +4,7 @@ import discord as dc
 import re
 import yt_dlp
 import datetime as dt
+import shutil
 import os
 from discord.ext import commands, tasks
 
@@ -151,7 +152,7 @@ class MusicCog(commands.Cog):
             if all(not queue for queue in self.Qu.values()) and os.path.exists(
                 "./files"
             ):
-                os.rmdir("./files")
+                shutil.rmtree("./files")
 
     async def get_user_id(self, ctx) -> tuple:
         await ctx.channel.purge(limit=1)
