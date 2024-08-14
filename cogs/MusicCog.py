@@ -29,6 +29,7 @@ class MusicCog(commands.Cog):
             "no_warnings": True,
             "default_search": "auto",
             "source_address": "0.0.0.0",
+            "verbose": True,
         }
         self.ffmpegopts = {
             "before_options": "-nostdin",
