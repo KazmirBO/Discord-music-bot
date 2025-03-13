@@ -85,6 +85,11 @@ class AdminCog(commands.Cog):
                 False,
             ],
             [
+                "+autodj/similar <true/false>",
+                "Włącza/wyłącza automatyczne dobieranie podobnych utworów",
+                False,
+            ],
+            [
                 "+r/roll <ilość kości> <rodzaj kości>",
                 "Wykonuje rzut/y kości",
                 False,
