@@ -33,6 +33,11 @@ class MusicBot:
         asyncio.run(self.main())
 
     async def main(self) -> None:
+        # Utwórz katalogi, jeśli nie istnieją
+        os.makedirs("./files", exist_ok=True)
+        os.makedirs("./playlists", exist_ok=True)
+        os.makedirs("./logs", exist_ok=True)
+
         await self.bot.add_cog(AdminCog(bot=self.bot))
         await self.bot.add_cog(FunCog(bot=self.bot))
         await self.bot.add_cog(MusicCog(bot=self.bot))

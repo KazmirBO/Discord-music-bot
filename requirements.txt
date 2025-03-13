@@ -4,3 +4,4 @@ python-dotenv
 pynacl
 ffmpeg
 datetime
+lyricsgenius

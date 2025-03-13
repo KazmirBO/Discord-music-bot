@@ -55,6 +55,36 @@ class AdminCog(commands.Cog):
                 False,
             ],
             [
+                "+v/volume <procent>",
+                "Wyświetla lub ustawia głośność (0-200%)",
+                False,
+            ],
+            [
+                "+l/lyrics",
+                "Wyświetla tekst aktualnie odtwarzanego utworu",
+                False,
+            ],
+            [
+                "+lp/loop",
+                "Włącza/wyłącza zapętlanie aktualnego utworu",
+                False,
+            ],
+            [
+                "+sp/saveplaylist <nazwa>",
+                "Zapisuje aktualną kolejkę jako playlistę",
+                False,
+            ],
+            [
+                "+loadp/loadplaylist <nazwa>",
+                "Wczytuje zapisaną playlistę",
+                False,
+            ],
+            [
+                "+pl/playlists",
+                "Wyświetla listę dostępnych playlist",
+                False,
+            ],
+            [
                 "+r/roll <ilość kości> <rodzaj kości>",
                 "Wykonuje rzut/y kości",
                 False,

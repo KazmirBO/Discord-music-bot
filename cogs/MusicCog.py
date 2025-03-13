@@ -6,6 +6,8 @@ import yt_dlp
 import datetime as dt
 import shutil
 import os
+import json
+import lyricsgenius
 from discord.ext import commands, tasks
 
 
@@ -16,6 +18,7 @@ class MusicCog(commands.Cog):
         self.Qu = {}
         self.Pl = {}
         self.Loop = {}
+        self.looping = {}
         self.ydl_opts = {
             "format": "bestaudio[ext=webm]/best",
             "outtmpl": "files/%(id)s.%(ext)s",
@@ -37,6 +40,12 @@ class MusicCog(commands.Cog):
         }
         self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
         self.yt_link = "https://www.youtube.com/watch?v="
+        
+        # Inicjalizacja API Genius do tekstów piosenek (wymaga tokenu API)
+        try:
+            self.genius = lyricsgenius.Genius(os.getenv("GENIUS_TOKEN", ""))
+        except:
+            self.genius = None
 
     def is_youtube_link(self, text) -> bool:
         link = re.compile(r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$")
@@ -129,9 +138,51 @@ class MusicCog(commands.Cog):
                 inline=False,
             )
         return embed
+        
+    def get_progress_bar(self, current, total, length=15):
+        """Tworzy pasek postępu dla aktualnie odtwarzanego utworu."""
+        filled = int(length * current / total)
+        bar = "▓" * filled + "░" * (length - filled)
+        percent = int(100 * current / total)
+        return f"{bar} {percent}%"
+        
+    def cleanup_files(self, file_id=None):
+        """Usuwa pojedynczy plik lub wszystkie niepotrzebne pliki."""
+        if file_id:
+            try:
+                if os.path.exists(f"./files/{file_id}.webm"):
+                    os.remove(f"./files/{file_id}.webm")
+            except Exception as e:
+                print(f"Błąd podczas usuwania pliku: {e}")
+        else:
+            if not os.path.exists("./files"):
+                return
+                
+            # Zbierz wszystkie używane ID
+            active_ids = set()
+            for server_id in self.Qu:
+                for track in self.Qu[server_id]:
+                    active_ids.add(track["id"])
+                    
+            for server_id in self.info:
+                if self.info[server_id]:
+                    active_ids.add(self.info[server_id]["id"])
+                    
+            # Usuń nieużywane pliki
+            for file in os.listdir("./files"):
+                if file.endswith(".webm"):
+                    file_id = file.split(".")[0]
+                    if file_id not in active_ids:
+                        try:
+                            os.remove(f"./files/{file}")
+                        except Exception as e:
+                            print(f"Błąd podczas usuwania pliku: {e}")
 
     async def play_next(self, ctx, pos: int = 0) -> None:
         id = ctx.message.guild.id
+        # Zapisz poprzednie ID do czyszczenia
+        old_id = self.info[id]["id"] if id in self.info and self.info[id] else None
+        
         if self.Qu[id]:
             self.info[id] = self.Qu[id].pop(pos)
             self.Pl[id].play(
@@ -147,13 +198,16 @@ class MusicCog(commands.Cog):
                 self.Loop[id].restart(ctx)
             else:
                 self.Loop[id].start(ctx)
+            
+            # Wyczyść poprzedni plik
+            if old_id:
+                self.cleanup_files(old_id)
         else:
             self.info[id].clear()
             await self.Pl[id].disconnect()
-            if all(not queue for queue in self.Qu.values()) and os.path.exists(
-                "./files"
-            ):
-                shutil.rmtree("./files")
+            
+            # Uruchom czyszczenie plików
+            self.cleanup_files()
 
     async def get_user_id(self, ctx) -> tuple:
         await ctx.channel.purge(limit=1)
@@ -165,6 +219,9 @@ class MusicCog(commands.Cog):
         self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
         if self.Pl[id]:
             if not self.Pl[id].is_playing() and not self.Pl[id].is_paused():
+                # Jeśli zapętlanie jest włączone, dodaj aktualny utwór z powrotem do kolejki
+                if id in self.looping and self.looping[id] and self.info[id]:
+                    self.Qu[id].insert(0, self.info[id].copy())
                 await self.play_next(ctx)
 
     @commands.command(pass_context=True, aliases=["p", "play"])
@@ -268,22 +325,31 @@ class MusicCog(commands.Cog):
                 color=dc.Colour.random(),
             )
             if self.info[id]:
-                date = str(
-                    dt.timedelta(
-                        seconds=int(self.info[id]["duration"]),
-                    )
-                )
+                total_seconds = int(self.info[id]["duration"])
+                # Oblicz, ile sekund już odtworzono
+                if self.Pl[id] and hasattr(self.Pl[id], "source"):
+                    elapsed = getattr(self.Pl[id], "elapsed", 0)
+                else:
+                    elapsed = 0
+                    
+                progress_bar = self.get_progress_bar(elapsed, total_seconds)
+                elapsed_str = str(dt.timedelta(seconds=int(elapsed)))
+                total_str = str(dt.timedelta(seconds=total_seconds))
+                
                 embed.add_field(
                     name="Aktualnie odtwarzany:",
-                    value="{0}\n{1}\n{2}\n{3}\n{4}".format(
+                    value="{0}\n{1}\n{2} {3}/{4}\n{5}\n{6}".format(
                         self.info[id]["title"],
                         self.info[id]["uploader"],
-                        date,
+                        progress_bar,
+                        elapsed_str,
+                        total_str,
                         self.info[id]["user"],
                         f"{self.yt_link}{self.info[id]['id']}",
                     ),
                     inline=False,
                 )
+            
             if self.Qu[id]:
                 for i, info in enumerate(self.Qu[id], start=1):
                     date = str(dt.timedelta(seconds=int(info["duration"])))
@@ -337,3 +403,188 @@ class MusicCog(commands.Cog):
             self.Qu[ctx.message.guild.id].clear()
         else:
             await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
+            
+    @commands.command(pass_context=True, aliases=["v", "volume"])
+    async def _glosnosc(self, ctx, volume: int = None) -> None:
+        _, id = await self.get_user_id(ctx=ctx)
+        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        
+        if volume is None:
+            current_volume = getattr(self.Pl[id], "volume", 100) * 100
+            await ctx.send(f"Aktualna głośność: {int(current_volume)}%")
+            return
+            
+        if volume < 0 or volume > 200:
+            await ctx.send("Głośność musi być między 0 a 200%")
+            return
+            
+        if self.Pl[id] is not None:
+            self.Pl[id].volume = volume / 100
+            await ctx.send(f"Głośność ustawiona na {volume}%")
+        else:
+            await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
+    
+    @commands.command(pass_context=True, aliases=["l", "lyrics"])
+    async def _tekst(self, ctx) -> None:
+        _, id = await self.get_user_id(ctx=ctx)
+        
+        if not self.genius:
+            await ctx.send("❌ Funkcja tekstów jest niedostępna - brak tokenu API Genius.")
+            return
+        
+        if id in self.info and self.info[id]:
+            title = self.info[id]["title"]
+            try:
+                song = self.genius.search_song(title)
+                if song:
+                    lyrics = song.lyrics
+                    # Podziel tekst na części o długości max 4000 znaków
+                    chunks = [lyrics[i:i+4000] for i in range(0, len(lyrics), 4000)]
+                    
+                    for i, chunk in enumerate(chunks):
+                        embed = dc.Embed(
+                            title=f"Tekst: {title}" if i == 0 else f"Tekst (część {i+1})",
+                            description=chunk,
+                            color=dc.Colour.random()
+                        )
+                        await ctx.send(embed=embed)
+                else:
+                    await ctx.send(f"Nie znaleziono tekstu dla: {title}")
+            except Exception as e:
+                await ctx.send(f"Błąd podczas pobierania tekstu: {e}")
+        else:
+            await ctx.send("Obecnie nic nie jest odtwarzane.")
+    
+    @commands.command(pass_context=False, aliases=["lp", "loop"])
+    async def _zapetl(self, ctx) -> None:
+        _, id = await self.get_user_id(ctx=ctx)
+        
+        if id not in self.looping:
+            self.looping[id] = False
+            
+        self.looping[id] = not self.looping[id]
+        
+        if self.looping[id]:
+            await ctx.send("🔄 Zapętlanie włączone - aktualny utwór będzie odtwarzany w pętli.")
+        else:
+            await ctx.send("▶️ Zapętlanie wyłączone.")
+    
+    @commands.command(pass_context=True, aliases=["sp", "saveplaylist"])
+    async def _zapisz_playliste(self, ctx, nazwa: str) -> None:
+        username, id = await self.get_user_id(ctx=ctx)
+        
+        if id in self.Qu and self.Qu[id]:
+            # Utwórz katalog jeśli nie istnieje
+            if not os.path.exists("./playlists"):
+                os.makedirs("./playlists")
+                
+            playlist_data = {
+                "nazwa": nazwa,
+                "utworzony_przez": username,
+                "utworzony_dnia": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "utwory": self.Qu[id]
+            }
+            
+            with open(f"./playlists/{nazwa}.json", "w", encoding="utf-8") as f:
+                json.dump(playlist_data, f, ensure_ascii=False, indent=4)
+                
+            await ctx.send(f"✅ Playlista '{nazwa}' została zapisana z {len(self.Qu[id])} utworami.")
+        else:
+            await ctx.send("❌ Kolejka jest pusta, nie ma czego zapisać.")
+    
+    @commands.command(pass_context=True, aliases=["loadp", "loadplaylist"])
+    async def _wczytaj_playliste(self, ctx, nazwa: str) -> None:
+        username, id = await self.get_user_id(ctx=ctx)
+        
+        playlist_path = f"./playlists/{nazwa}.json"
+        if not os.path.exists(playlist_path):
+            await ctx.send(f"❌ Playlista '{nazwa}' nie istnieje.")
+            return
+            
+        with open(playlist_path, "r", encoding="utf-8") as f:
+            playlist_data = json.load(f)
+            
+        utwory = playlist_data["utwory"]
+        
+        if utwory:
+            if id not in self.Qu:
+                self.Qu[id] = []
+                
+            for utwór in utwory:
+                utwór["user"] = username  # Zaktualizuj użytkownika do aktualnego
+                self.Qu[id].append(utwór)
+                
+            embed = dc.Embed(
+                title=f"Wczytano playlistę: {nazwa}",
+                description=f"Dodano {len(utwory)} utworów do kolejki.",
+                color=dc.Colour.green()
+            )
+            embed.add_field(name="Utworzona przez", value=playlist_data["utworzony_przez"], inline=True)
+            embed.add_field(name="Data utworzenia", value=playlist_data["utworzony_dnia"], inline=True)
+            
+            await ctx.send(embed=embed)
+            
+            if ctx.author.voice:
+                self.Pl[id] = await self.get_vc(ctx=ctx, vs=ctx.author.voice)
+                if not self.Pl[id].is_playing():
+                    await self.play_next(ctx=ctx)
+            else:
+                await ctx.send("Dołącz do kanału głosowego, aby rozpocząć odtwarzanie.")
+        else:
+            await ctx.send("❌ Playlista jest pusta.")
+    
+    @commands.command(pass_context=False, aliases=["pl", "playlists"])
+    async def _playlisty(self, ctx) -> None:
+        await self.get_user_id(ctx=ctx)
+        
+        if not os.path.exists("./playlists"):
+            await ctx.send("❌ Nie znaleziono żadnych zapisanych playlist.")
+            return
+            
+        playlists = [f for f in os.listdir("./playlists") if f.endswith(".json")]
+        
+        if not playlists:
+            await ctx.send("❌ Nie znaleziono żadnych zapisanych playlist.")
+            return
+            
+        embed = dc.Embed(
+            title="Zapisane playlisty",
+            color=dc.Colour.blue()
+        )
+        
+        for playlist in playlists:
+            nazwa = playlist.replace(".json", "")
+            with open(f"./playlists/{playlist}", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            embed.add_field(
+                name=nazwa,
+                value=f"Utworów: {len(data['utwory'])}\nUtworzył: {data['utworzony_przez']}\nData: {data['utworzony_dnia']}",
+                inline=False
+            )
+            
+        await ctx.send(embed=embed)
+    
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.CommandInvokeError):
+            error = error.original
+            
+        if isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(f"❌ Brakujący argument: {error.param.name}")
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send(f"❌ Nieprawidłowy argument: {error}")
+        elif isinstance(error, commands.CommandNotFound):
+            # Ignoruj nieznane komendy
+            pass
+        elif isinstance(error, commands.CheckFailure):
+            await ctx.send("❌ Nie masz uprawnień do używania tej komendy.")
+        else:
+            await ctx.send(f"❌ Wystąpił błąd: {error}")
+            
+            # Log błędów do pliku
+            if not os.path.exists("./logs"):
+                os.makedirs("./logs")
+                
+            with open("./logs/errors.log", "a", encoding="utf-8") as f:
+                f.write(f"{dt.datetime.now()}: {error}\n")
