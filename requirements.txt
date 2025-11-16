@@ -1,7 +1,28 @@
-yt_dlp
-discord
-python-dotenv
-pynacl
-ffmpeg
-datetime
-lyricsgenius
+# Discord Music Bot Requirements
+# Updated to latest versions as of November 2025
+
+# Core Discord library
+discord.py>=2.6.4
+
+# YouTube downloading
+yt-dlp>=2025.11.12
+
+# Environment variables
+python-dotenv>=1.2.1
+
+# Voice support
+PyNaCl>=1.6.1
+
+# FFmpeg Python binding
+ffmpeg>=1.4
+
+# Lyrics support
+lyricsgenius>=3.7.5
+
+# Additional dependencies for improved functionality
+aiohttp>=3.13.2
+requests>=2.32.5
+beautifulsoup4>=4.14.2
+
+# Development and compatibility
+typing_extensions>=4.15.0

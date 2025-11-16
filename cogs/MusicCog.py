@@ -1,959 +1,904 @@
 #!/usr/bin/env python3
 
 import discord as dc
-import re
-import yt_dlp
 import datetime as dt
-import shutil
 import os
-import json
 import lyricsgenius
-import time
-from collections import defaultdict
+from typing import Optional, List
 from discord.ext import commands, tasks
 
+from config import BotConfig
+from utils.rate_limiter import RateLimiter
+from utils.user_manager import UserManager
+from utils.file_manager import FileManager
+from utils.logger import Logger
+from music.track import Track
+from music.queue_manager import QueueManager
+from music.youtube_downloader import YouTubeDownloader
+from music.playlist_manager import PlaylistManager
 
 class MusicCog(commands.Cog):
-    def __init__(self, bot) -> None:
+    """Refactored Music Cog with improved structure and separation of concerns."""
+    
+    def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self.info = {}
-        self.Qu = {}
-        self.Pl = {}
-        self.Loop = {}
-        self.looping = {}
-
-        # 1. Zabezpieczenia przed nadużyciami
-        self.user_cooldowns = {}  # Śledzenie czasu ostatniego użycia komend
-        self.user_queue_items = defaultdict(
-            lambda: defaultdict(int)
-        )  # Liczba utworów w kolejce per użytkownik
-        self.max_queue_per_user = (
-            15  # Maksymalna liczba utworów na użytkownika w kolejce
-        )
-        # Czas odnowienia (w sekundach) między komendami
-        self.cooldown_time = 3
-
-        # 7. Cache'owanie wyników wyszukiwania
-        self.search_cache = {}  # Cache dla wyników wyszukiwania
-        self.cache_expiry = 3600  # Cache ważny przez 1 godzinę (w sekundach)
-
-        self.ydl_opts = {
-            "format": "bestaudio[ext=webm]/best",
-            "outtmpl": "files/%(id)s.%(ext)s",
-            "download": True,
-            "restrictfilenames": True,
-            "noplaylist": True,
-            "nocheckcertificate": True,
-            "ignoreerrors": False,
-            "logtostderr": False,
-            "quiet": True,
-            "no_warnings": True,
-            "default_search": "auto",
-            "source_address": "0.0.0.0",
-            "verbose": True,
-        }
-        self.ffmpegopts = {
-            "before_options": "-nostdin",
-            "options": "-vn",
-        }
-        self.ydl = yt_dlp.YoutubeDL(self.ydl_opts)
-        self.yt_link = "https://www.youtube.com/watch?v="
-
-        # Inicjalizacja API Genius do tekstów piosenek (wymaga tokenu API)
+        
+        # Initialize managers and utilities
+        self.rate_limiter = RateLimiter()
+        self.queue_manager = QueueManager()
+        self.youtube_downloader = YouTubeDownloader()
+        
+        # Voice clients per guild
+        self.voice_clients: dict[int, Optional[dc.VoiceClient]] = {}
+        
+        # Music loop tasks per guild
+        self.music_loops: dict[int, Optional[tasks.Loop]] = {}
+        
+        # AutoDJ settings per guild
+        self.auto_dj_enabled: dict[int, bool] = {}
+        
+        # Initialize Genius API for lyrics
+        self.genius = self._initialize_genius()
+        
+        # Start cache cleanup task
+        self.cache_cleanup_task.start()
+        
+        # Ensure directories exist
+        FileManager.ensure_directories_exist()
+    
+    def _initialize_genius(self) -> Optional[lyricsgenius.Genius]:
+        """Initialize Genius API client with lyricsgenius 3.7.5 features."""
         try:
-            self.genius = lyricsgenius.Genius(os.getenv("GENIUS_TOKEN", ""))
-        except:
-            self.genius = None
-
-        # Uruchom zadanie czyszczenia cache co godzinę
-        self.clear_cache.start()
-
-    def is_youtube_link(self, text) -> bool:
-        link = re.compile(r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/.+$")
-        return link.match(text) is not None
-
-    def is_youtube_playlist_link(self, text) -> bool:
-        link = re.compile(
-            r"(https?://)?(www\.)?(youtube|youtu)\.(com|be)/playlist\?list=.+$"
-        )
-        return link.match(text) is not None
-
-    # 1. Sprawdzanie limitów i cooldownów użytkownika
-    def check_user_limits(self, user_id, guild_id, command_type="play"):
-        current_time = time.time()
-
-        # Sprawdź cooldown komendy
-        cooldown_key = f"{user_id}:{guild_id}:{command_type}"
-        if cooldown_key in self.user_cooldowns:
-            last_use = self.user_cooldowns[cooldown_key]
-            if current_time - last_use < self.cooldown_time:
-                return (
-                    False,
-                    f"Spokojnie! Poczekaj {
-                        self.cooldown_time} sekund między komendami.",
-                )
-
-        # Aktualizuj czas ostatniego użycia
-        self.user_cooldowns[cooldown_key] = current_time
-
-        # Sprawdź limit kolejki dla komend odtwarzania
-        if command_type == "play":
-            current_count = self.user_queue_items[guild_id][user_id]
-            if current_count >= self.max_queue_per_user:
-                return (
-                    False,
-                    f"Osiągnąłeś limit {
-                        self.max_queue_per_user} utworów w kolejce. Poczekaj, aż niektóre zostaną odtworzone.",
-                )
-
-        return True, ""
-
-    def track_info(self, info: list, username: str) -> dict:
-        return {
-            "url": f"{self.yt_link}{info['id']}",  # type: ignore
-            "title": info["title"],  # type: ignore
-            "uploader": info["uploader"],  # type: ignore
-            "duration": info["duration"],  # type: ignore
-            "id": info["id"],  # type: ignore
-            "user": username,
-        }
-
-    async def get_vc(self, ctx, vs):
-        if not ctx.voice_client:
-            return await vs.channel.connect()
-        return dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-
-    def set_queue(self, id: int, info, username: str) -> None:
-        if id in self.Qu:
-            self.Qu[id].append(self.track_info(info=info, username=username))
-        else:
-            self.Qu[id] = [self.track_info(info=info, username=username)]
-
-        # 1. Aktualizuj licznik utworów użytkownika
-        user_id = self.get_user_id_from_name(username, id)
-        if user_id:
-            self.user_queue_items[id][user_id] += 1
-
-    # Pomocnicza metoda do uzyskania ID użytkownika na podstawie nazwy
-    def get_user_id_from_name(self, username, guild_id):
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            return None
-
-        for member in guild.members:
-            if member.display_name == username:
-                return member.id
-
-        return None
-
-    # 7. Funkcja do sprawdzania i zapisu do cache'u
-    def get_yts_info(self, url: str, ilosc: str = ""):
-        cache_key = f"{url}:{ilosc}"
-
-        # Sprawdź, czy wynik jest w cache'u i czy nie wygasł
-        if cache_key in self.search_cache:
-            cache_time, cache_data = self.search_cache[cache_key]
-            if time.time() - cache_time < self.cache_expiry:
-                return cache_data
-
-        # Jeśli nie ma w cache lub wygasł, wykonaj wyszukiwanie
-        result = self.ydl.extract_info(f"ytsearch{ilosc}:'{url}'")
-
-        # Zapisz wynik do cache'u
-        self.search_cache[cache_key] = (time.time(), result)
-
-        return result
-
-    # Zadanie czyszczenia wygasłych elementów cache'u
-    @tasks.loop(hours=1)
-    async def clear_cache(self):
-        current_time = time.time()
-        expired_keys = []
-
-        for key, (cache_time, _) in self.search_cache.items():
-            if current_time - cache_time > self.cache_expiry:
-                expired_keys.append(key)
-
-        for key in expired_keys:
-            del self.search_cache[key]
-
-        print(f"Wyczyszczono {len(expired_keys)} wygasłych elementów cache'u.")
-
-    def track_embed(self, text: str, info: list, username: str = ""):
-        if not username:
-            username = info["user"]  # type: ignore
-
-        embed = dc.Embed(
-            title=f"{text}: {info['title']}",  # type: ignore
-            color=dc.Colour.random(),
-        )
-        embed.add_field(name="Kto dodał", value=username, inline=True)
-        embed.add_field(
-            name="Uploader",
-            value=info["uploader"],  # type: ignore
-            inline=True,
-        )
-        embed.add_field(
-            name="Czas trwania",
-            value=str(
-                dt.timedelta(
-                    seconds=int(info["duration"]),  # type: ignore
-                )
-            ),
-            inline=True,
-        )
-        embed.add_field(
-            name="URL",
-            value=f"{self.yt_link}{info['id']}",  # type: ignore
-            inline=False,
-        )
-        return embed
-
-    def playlist_embed(self, info: list, username: str = ""):
-        if not username:
-            username = info["user"]  # type: ignore
-
-        embed = dc.Embed(title="Dodano", color=dc.Colour.random())
-        embed.add_field(name="Kto dodał", value=username, inline=False)
-        for iter in info:
-            embed.add_field(
-                name="Uploader",
-                value=iter["uploader"],
-                inline=True,
-            )
-            embed.add_field(
-                name="Czas trwania",
-                value=str(
-                    dt.timedelta(
-                        seconds=int(iter["duration"]),
-                    )
-                ),
-                inline=True,
-            )
-            embed.add_field(
-                name="URL",
-                value=f"{self.yt_link}{iter['id']}",
-                inline=False,
-            )
-        return embed
-
-    def get_progress_bar(self, current, total, length=15):
-        """Tworzy pasek postępu dla aktualnie odtwarzanego utworu."""
-        filled = int(length * current / total)
-        bar = "▓" * filled + "░" * (length - filled)
-        percent = int(100 * current / total)
-        return f"{bar} {percent}%"
-
-    def cleanup_files(self, file_id=None):
-        """Usuwa pojedynczy plik lub wszystkie niepotrzebne pliki."""
-        if file_id:
-            try:
-                if os.path.exists(f"./files/{file_id}.webm"):
-                    os.remove(f"./files/{file_id}.webm")
-            except Exception as e:
-                print(f"Błąd podczas usuwania pliku: {e}")
-        else:
-            if not os.path.exists("./files"):
-                return
-
-            # Zbierz wszystkie używane ID
-            active_ids = set()
-            for server_id in self.Qu:
-                for track in self.Qu[server_id]:
-                    active_ids.add(track["id"])
-
-            for server_id in self.info:
-                if self.info[server_id]:
-                    active_ids.add(self.info[server_id]["id"])
-
-            # Usuń nieużywane pliki
-            for file in os.listdir("./files"):
-                if file.endswith(".webm"):
-                    file_id = file.split(".")[0]
-                    if file_id not in active_ids:
-                        try:
-                            os.remove(f"./files/{file}")
-                        except Exception as e:
-                            print(f"Błąd podczas usuwania pliku: {e}")
-
-    # 6. Funkcja pobierająca podobne utwory
-    async def get_similar_tracks(self, ctx, track_info):
-        """Pobiera utwory podobne do aktualnie odtwarzanego."""
-        if not track_info:
-            return []
-
-        # Użyj tytułu i nazwy kanału jako podstawy do wyszukiwania
-        query = f"{track_info['title']} {track_info['uploader']} podobne"
-
-        try:
-            # Pobierz 3 podobne utwory
-            search_results = self.get_yts_info(url=query, ilosc="3")
-            similar_tracks = []
-
-            # Upewnij się, że nie dodajemy ponownie tego samego utworu
-            current_id = track_info["id"]
-
-            for track in search_results["entries"]:
-                if track["id"] != current_id:
-                    similar_tracks.append(track)
-
-            return similar_tracks
+            genius_token = BotConfig.get_env_var("GENIUS_TOKEN")
+            if genius_token:
+                genius = lyricsgenius.Genius(genius_token)
+                # Configure for better performance with new version
+                genius.timeout = 15
+                genius.sleep_time = 0.5
+                genius.retries = 3
+                genius.remove_section_headers = True
+                genius.skip_non_songs = True
+                genius.excluded_terms = ["(Remix)", "(Instrumental)", "(Cover)"]
+                return genius
         except Exception as e:
-            print(f"Błąd podczas pobierania podobnych utworów: {e}")
-            return []
-
-    # 6. Dodaj podobne utwory do kolejki
-    async def add_similar_tracks(self, ctx, track_info):
-        """Dodaje podobne utwory do kolejki, gdy jest prawie pusta."""
-        id = ctx.message.guild.id
-
-        # Sprawdź, czy kolejka jest prawie pusta (mniej niż 2 utwory)
-        if id in self.Qu and len(self.Qu[id]) < 2:
-            similar_tracks = await self.get_similar_tracks(ctx, track_info)
-
-            if similar_tracks:
-                await ctx.send("🎵 Dodaję podobne utwory do kolejki...")
-
-                for track in similar_tracks:
-                    self.set_queue(id=id, info=track, username="AutoDJ 🤖")
-
-                embed = dc.Embed(
-                    title="Dodano podobne utwory",
-                    description=f"Dodano {
-                        len(similar_tracks)} podobnych utworów do kolejki.",
-                    color=dc.Colour.purple(),
-                )
-                await ctx.send(embed=embed)
-
-    async def play_next(self, ctx, pos: int = 0) -> None:
-        id = ctx.message.guild.id
-        # Zapisz poprzednie ID do czyszczenia
-        old_id = self.info[id]["id"] if id in self.info and self.info[id] else None
-
-        # Aktualizuj licznik utworów użytkownika po odtworzeniu
-        if old_id and id in self.info and "user" in self.info[id]:
-            user_id = self.get_user_id_from_name(self.info[id]["user"], id)
-            if (
-                user_id
-                and id in self.user_queue_items
-                and user_id in self.user_queue_items[id]
-            ):
-                self.user_queue_items[id][user_id] = max(
-                    0, self.user_queue_items[id][user_id] - 1
-                )
-
-        if self.Qu[id]:
-            self.info[id] = self.Qu[id].pop(pos)
-            self.Pl[id].play(
-                dc.FFmpegPCMAudio(f"./files/{self.info[id]['id']}.webm"),
-            )
-            embed = self.track_embed(
-                text="Teraz odtwarzane",
-                info=self.info[id],
-            )
-            await ctx.send(embed=embed)
-            self.Loop[id] = self.music_loop
-            if self.Loop[id].is_running():
-                self.Loop[id].restart(ctx)
-            else:
-                self.Loop[id].start(ctx)
-
-            # Wyczyść poprzedni plik
-            if old_id:
-                self.cleanup_files(old_id)
-
-            # 6. Sprawdź, czy kolejka jest prawie pusta i dodaj podobne utwory
-            await self.add_similar_tracks(ctx, self.info[id])
-        else:
-            self.info[id].clear()
-            await self.Pl[id].disconnect()
-
-            # Uruchom czyszczenie plików
-            self.cleanup_files()
-
-    async def get_user_id(self, ctx) -> tuple:
-        await ctx.channel.purge(limit=1)
-        return ctx.message.author.display_name, ctx.message.guild.id
-
-    @tasks.loop(seconds=5.0)
-    async def music_loop(self, ctx) -> None:
-        id = ctx.message.guild.id
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        if self.Pl[id]:
-            if not self.Pl[id].is_playing() and not self.Pl[id].is_paused():
-                # Jeśli zapętlanie jest włączone, dodaj aktualny utwór z powrotem do kolejki
-                if id in self.looping and self.looping[id] and self.info[id]:
-                    self.Qu[id].insert(0, self.info[id].copy())
-                await self.play_next(ctx)
-
-    @commands.command(pass_context=True, aliases=["p", "play"])
-    async def _odtworz_muzyke(self, ctx, *, url: str) -> None:
-        username, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "play")
-        if not can_proceed:
-            await ctx.send(f"⚠️ {error_msg}")
-            return
-
-        if self.is_youtube_playlist_link(text=url):
-            info = self.ydl.extract_info(url)["entries"]  # type: ignore
-            playlist = True
-        else:
-            if self.is_youtube_link(text=url):
-                info = self.ydl.extract_info(url)
-            else:
-                info = self.get_yts_info(url=url)["entries"][0]  # type: ignore
-            playlist = False
-        if info:
-            if playlist:
-                embed = self.playlist_embed(
-                    info=info,  # type: ignore
-                    username=username,
-                )
-            else:
-                embed = self.track_embed(
-                    text="Dodano",
-                    info=info,  # type: ignore
-                    username=username,
-                )
-            await ctx.send(embed=embed)
-            if ctx.author.voice:
-                self.Pl[id] = await self.get_vc(
-                    ctx=ctx,
-                    vs=ctx.author.voice,
-                )
-                if playlist:
-                    # Sprawdź, czy użytkownik nie przekroczy limitu dodając playlistę
-                    total_tracks = len(info)
-                    current_tracks = self.user_queue_items[id][ctx.author.id]
-                    if current_tracks + total_tracks > self.max_queue_per_user:
-                        await ctx.send(
-                            f"⚠️ Ta playlista ma {total_tracks} utworów, co przekroczy twój limit {
-                                self.max_queue_per_user}. Dodano tylko pierwsze {self.max_queue_per_user - current_tracks}."
-                        )
-                        # Dodaj tylko tyle utworów, ile możliwe w limicie
-                        for i, iter in enumerate(info):
-                            if i < (self.max_queue_per_user - current_tracks):
-                                self.set_queue(
-                                    id=id,
-                                    info=iter,
-                                    username=username,
-                                )
-                            else:
-                                break
-                    else:
-                        for iter in info:
-                            self.set_queue(
-                                id=id,
-                                info=iter,
-                                username=username,
-                            )
-                else:
-                    self.set_queue(
-                        id=id,
-                        info=info,
-                        username=username,
-                    )
-                if not self.Pl[id].is_playing():
-                    await self.play_next(ctx=ctx)
-            else:
-                await ctx.send("Najpierw dołącz do kanału głosowego.")
-
-    @commands.command(pass_context=True, aliases=["f", "find"])
-    async def _szukaj(self, ctx, *, url: str) -> None:
-        username, _ = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, ctx.guild.id, "find"
+            Logger.log_error(e, "GENIUS_INIT")
+        return None
+    
+    def _check_user_limits(self, ctx: commands.Context, command_type: str = "play") -> tuple[bool, str]:
+        """Check user rate limits and return result."""
+        return self.rate_limiter.check_user_limits(
+            ctx.author.id, ctx.guild.id, command_type
         )
+    
+    async def _get_voice_client(self, ctx: commands.Context) -> Optional[dc.VoiceClient]:
+        """Get or create voice client for the guild."""
+        guild_id = ctx.guild.id
+        
+        if not ctx.voice_client and ctx.author.voice:
+            self.voice_clients[guild_id] = await ctx.author.voice.channel.connect()
+        else:
+            self.voice_clients[guild_id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
+        
+        return self.voice_clients[guild_id]
+    
+    def _create_track_embed(self, title: str, track: Track, color: int = None) -> dc.Embed:
+        """Create enhanced embed for track information using updated discord.py features."""
+        # Use appropriate color based on context
+        if "Teraz odtwarzane" in title:
+            embed_color = color or BotConfig.COLORS["playing"]
+        elif "Dodano" in title:
+            embed_color = color or BotConfig.COLORS["success"]
+        else:
+            embed_color = color or BotConfig.COLORS["info"]
+            
+        embed = dc.Embed(
+            title=f"🎵 {title}",
+            description=f"**{track.title}**",
+            color=embed_color,
+            timestamp=dc.utils.utcnow()  # Updated method for discord.py 2.6.4
+        )
+        
+        # Enhanced field layout with emojis
+        embed.add_field(name="👤 Dodał", value=track.user, inline=True)
+        embed.add_field(name="📺 Kanał", value=track.uploader, inline=True)
+        embed.add_field(name="⏱️ Czas", value=track.get_duration_string(), inline=True)
+        
+        # Add URL as clickable link
+        embed.add_field(name="🔗 Link", value=f"[Otwórz w YouTube]({track.url})", inline=False)
+        
+        # Add footer with bot info
+        embed.set_footer(text="Discord Music Bot", icon_url="https://cdn.discordapp.com/emojis/1234567890123456789.png")
+        
+        return embed
+    
+    def _create_queue_embed(self, guild_id: int) -> dc.Embed:
+        """Create enhanced embed showing current queue status."""
+        embed = dc.Embed(
+            title="🎼 Kolejka odtwarzania",
+            color=BotConfig.COLORS["queue"],
+            timestamp=dc.utils.utcnow()
+        )
+        
+        # Current track
+        current = self.queue_manager.get_current_track(guild_id)
+        if current:
+            progress_info = (
+                f"**{current.title}**\n"
+                f"📺 {current.uploader}\n"
+                f"⏱️ {current.get_duration_string()}\n"
+                f"👤 {current.user}\n"
+                f"🔗 [Link]({current.url})"
+            )
+            embed.add_field(name="🎵 Teraz gra:", value=progress_info, inline=False)
+        
+        # Queue with pagination support
+        queue = self.queue_manager.get_queue(guild_id)
+        if queue:
+            # Limit to first 10 tracks to prevent embed overflow
+            displayed_tracks = queue[:10]
+            queue_info = []
+            
+            for i, track in enumerate(displayed_tracks, start=1):
+                # Truncate long titles
+                title = track.title[:50] + "..." if len(track.title) > 50 else track.title
+                queue_info.append(
+                    f"**{i}.** {title}\n"
+                    f"⏱️ {track.get_duration_string()} | 👤 {track.user}"
+                )
+            
+            embed.add_field(
+                name=f"📋 Następne utwory ({len(queue)} w kolejce):",
+                value="\n\n".join(queue_info) if queue_info else "Brak utworów",
+                inline=False
+            )
+            
+            if len(queue) > 10:
+                embed.add_field(
+                    name="ℹ️ Informacja:",
+                    value=f"Pokazano 10 z {len(queue)} utworów w kolejce",
+                    inline=False
+                )
+        else:
+            embed.add_field(name="📋 Kolejka:", value="Pusta", inline=False)
+        
+        # Add loop status
+        if self.queue_manager.is_looping(guild_id):
+            embed.add_field(name="🔄", value="Zapętlanie włączone", inline=True)
+        
+        # Add AutoDJ status
+        if self.auto_dj_enabled.get(guild_id, True):
+            embed.add_field(name="🎧", value="AutoDJ aktywny", inline=True)
+        
+        embed.set_footer(text="Discord Music Bot • Użyj +help aby zobaczyć komendy")
+        
+        return embed
+    
+    async def _handle_track_addition(self, ctx: commands.Context, url_or_query: str) -> None:
+        """Handle adding single track or playlist to queue."""
+        username, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "play")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        info = self.get_yts_info(url=url, ilosc="5")["entries"]  # type: ignore
+        
+        # Check if it's a playlist
+        if self.youtube_downloader.is_youtube_playlist_link(url_or_query):
+            await self._handle_playlist_addition(ctx, url_or_query, username, guild_id)
+        else:
+            await self._handle_single_track_addition(ctx, url_or_query, username, guild_id)
+    
+    async def _handle_single_track_addition(self, ctx: commands.Context, url_or_query: str, username: str, guild_id: int) -> None:
+        """Handle adding single track to queue."""
+        try:
+            # Show processing message for longer operations
+            processing_embed = dc.Embed(
+                title="🔍 Przetwarzanie",
+                description=f"Pobieranie informacji o: **{url_or_query[:50]}...**",
+                color=BotConfig.COLORS["info"]
+            )
+            processing_msg = await ctx.send(embed=processing_embed)
+            
+            track_info = self.youtube_downloader.get_track_info(url_or_query)
+            if not track_info:
+                error_embed = dc.Embed(
+                    title="❌ Błąd",
+                    description="Nie udało się pobrać informacji o utworze. Sprawdź czy link jest poprawny.",
+                    color=BotConfig.COLORS["error"]
+                )
+                await processing_msg.edit(embed=error_embed)
+                return
+            
+            track = Track.from_yt_info(track_info, username)
+            
+            # Add to queue and user count
+            self.queue_manager.add_track(guild_id, track)
+            self.rate_limiter.add_tracks_to_user_count(ctx.author.id, guild_id, 1)
+            
+            # Send confirmation
+            embed = self._create_track_embed("Dodano", track)
+            await processing_msg.edit(embed=embed)
+            
+            # Start playing if nothing is playing
+            voice_client = await self._get_voice_client(ctx)
+            if voice_client and not voice_client.is_playing():
+                await self._play_next_track(ctx)
+                
+        except ValueError as e:
+            error_embed = dc.Embed(
+                title="❌ Błąd danych",
+                description=f"Problem z metadanymi utworu: {str(e)}",
+                color=BotConfig.COLORS["error"]
+            )
+            if 'processing_msg' in locals():
+                await processing_msg.edit(embed=error_embed)
+            else:
+                await ctx.send(embed=error_embed)
+            Logger.log_error(e, f"TRACK_CREATION: {url_or_query}")
+            
+        except Exception as e:
+            error_embed = dc.Embed(
+                title="❌ Nieoczekiwany błąd",
+                description="Wystąpił problem podczas przetwarzania utworu.",
+                color=BotConfig.COLORS["error"]
+            )
+            if 'processing_msg' in locals():
+                await processing_msg.edit(embed=error_embed)
+            else:
+                await ctx.send(embed=error_embed)
+            Logger.log_error(e, f"TRACK_ADDITION: {url_or_query}")
+    
+    async def _handle_playlist_addition(self, ctx: commands.Context, playlist_url: str, username: str, guild_id: int) -> None:
+        """Handle adding playlist to queue."""
+        playlist_info = self.youtube_downloader.get_playlist_info(playlist_url)
+        if not playlist_info:
+            await ctx.send("❌ Nie udało się pobrać playlisty.")
+            return
+        
+        # Check user limits for playlist
+        track_count = len(playlist_info)
+        can_add_all, max_addable = self.rate_limiter.can_add_tracks(
+            ctx.author.id, guild_id, track_count
+        )
+        
+        if not can_add_all and max_addable == 0:
+            await ctx.send(f"⚠️ Osiągnąłeś limit utworów w kolejce.")
+            return
+        
+        # Add tracks (limited if necessary)
+        tracks_to_add = playlist_info[:max_addable] if not can_add_all else playlist_info
+        tracks = [Track.from_yt_info(info, username) for info in tracks_to_add]
+        
+        self.queue_manager.add_tracks(guild_id, tracks)
+        self.rate_limiter.add_tracks_to_user_count(ctx.author.id, guild_id, len(tracks))
+        
+        # Send confirmation
+        embed = dc.Embed(title="Dodano playlistę", color=BotConfig.COLORS["success"])
+        embed.add_field(name="Kto dodał", value=username, inline=True)
+        embed.add_field(name="Utworów dodano", value=str(len(tracks)), inline=True)
+        
+        if not can_add_all:
+            embed.add_field(
+                name="Uwaga", 
+                value=f"Dodano tylko {len(tracks)} z {track_count} utworów (limit użytkownika)", 
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+        
+        # Start playing if nothing is playing
+        voice_client = await self._get_voice_client(ctx)
+        if voice_client and not voice_client.is_playing():
+            await self._play_next_track(ctx)
+    
+    async def _play_next_track(self, ctx: commands.Context, position: int = 0) -> None:
+        """Play next track from queue."""
+        guild_id = ctx.guild.id
+        
+        # Get current track for cleanup
+        old_track = self.queue_manager.get_current_track(guild_id)
+        
+        # Get next track
+        next_track = self.queue_manager.get_next_track(guild_id, position)
+        
+        if next_track:
+            # Update current track
+            self.queue_manager.set_current_track(guild_id, next_track)
+            
+            # Update user count
+            user_id = UserManager.get_user_id_from_name(next_track.user, guild_id, self.bot)
+            if user_id:
+                self.rate_limiter.remove_tracks_from_user_count(user_id, guild_id, 1)
+            
+            # Play the track
+            voice_client = self.voice_clients[guild_id]
+            if voice_client:
+                audio_source = dc.FFmpegPCMAudio(
+                    FileManager.get_file_path(next_track.id),
+                    **BotConfig.FFMPEG_OPTS
+                )
+                voice_client.play(audio_source)
+                
+                # Send now playing message
+                embed = self._create_track_embed("Teraz odtwarzane", next_track)
+                await ctx.send(embed=embed)
+                
+                # Start music loop
+                await self._start_music_loop(ctx)
+                
+                # Clean up old file
+                if old_track:
+                    FileManager.cleanup_files(old_track.id)
+                
+                # Check for AutoDJ
+                await self._check_auto_dj(ctx)
+        else:
+            # No more tracks, disconnect
+            self.queue_manager.set_current_track(guild_id, None)
+            if guild_id in self.voice_clients and self.voice_clients[guild_id]:
+                await self.voice_clients[guild_id].disconnect()
+            
+            # Clean up all files
+            active_ids = self.queue_manager.get_all_active_track_ids()
+            FileManager.cleanup_files(active_ids=active_ids)
+    
+    async def _start_music_loop(self, ctx: commands.Context) -> None:
+        """Start or restart music loop for guild."""
+        guild_id = ctx.guild.id
+        
+        if guild_id in self.music_loops and self.music_loops[guild_id]:
+            if self.music_loops[guild_id].is_running():
+                self.music_loops[guild_id].restart(ctx)
+            else:
+                self.music_loops[guild_id].start(ctx)
+        else:
+            self.music_loops[guild_id] = self.music_loop
+            self.music_loops[guild_id].start(ctx)
+    
+    async def _check_auto_dj(self, ctx: commands.Context) -> None:
+        """Check if AutoDJ should add similar tracks."""
+        guild_id = ctx.guild.id
+        
+        if not self.auto_dj_enabled.get(guild_id, True):
+            return
+        
+        if self.queue_manager.get_queue_length(guild_id) < 2:
+            current = self.queue_manager.get_current_track(guild_id)
+            if current:
+                similar_tracks = self.youtube_downloader.get_similar_tracks(
+                    current.to_dict(), count=3
+                )
+                
+                if similar_tracks:
+                    await ctx.send("🎵 Dodaję podobne utwory do kolejki...")
+                    
+                    tracks = [Track.from_yt_info(info, "AutoDJ 🤖") for info in similar_tracks]
+                    self.queue_manager.add_tracks(guild_id, tracks)
+                    
+                    embed = dc.Embed(
+                        title="Dodano podobne utwory",
+                        description=f"Dodano {len(tracks)} podobnych utworów do kolejki.",
+                        color=BotConfig.COLORS["purple"]
+                    )
+                    await ctx.send(embed=embed)
+    
+    @tasks.loop(seconds=5.0)
+    async def music_loop(self, ctx: commands.Context) -> None:
+        """Music loop to handle track progression."""
+        guild_id = ctx.guild.id
+        voice_client = self.voice_clients.get(guild_id)
+        
+        if voice_client and not voice_client.is_playing() and not voice_client.is_paused():
+            # Handle looping
+            if self.queue_manager.is_looping(guild_id):
+                current = self.queue_manager.get_current_track(guild_id)
+                if current:
+                    # Add current track back to beginning of queue
+                    queue = self.queue_manager.get_queue(guild_id)
+                    queue.insert(0, current)
+            
+            await self._play_next_track(ctx)
+    
+    @tasks.loop(hours=1)
+    async def cache_cleanup_task(self) -> None:
+        """Clean up expired cache entries."""
+        removed_count = self.youtube_downloader.clear_expired_cache()
+        if removed_count > 0:
+            Logger.log_cache_cleanup(removed_count)
+    
+    # Command implementations (Traditional prefix commands)
+    @commands.command(pass_context=True, aliases=["p", "play"])
+    async def play_music(self, ctx: commands.Context, *, url: str) -> None:
+        """Play music from URL or search query."""
+        if not ctx.author.voice:
+            embed = dc.Embed(
+                title="❌ Błąd",
+                description="Najpierw dołącz do kanału głosowego!",
+                color=BotConfig.COLORS["error"]
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        await self._handle_track_addition(ctx, url)
+    
+    # Modern Slash Commands (discord.py 2.6.4)
+    @dc.app_commands.command(name="play", description="Odtwórz muzykę z YouTube")
+    @dc.app_commands.describe(query="URL YouTube lub nazwa utworu do wyszukania")
+    async def slash_play(self, interaction: dc.Interaction, query: str) -> None:
+        """Slash command version of play."""
+        if not interaction.user.voice:
+            embed = dc.Embed(
+                title="❌ Błąd",
+                description="Najpierw dołącz do kanału głosowego!",
+                color=BotConfig.COLORS["error"]
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Create a mock context for compatibility
+        ctx = await self.bot.get_context(interaction)
+        await self._handle_track_addition(ctx, query)
+        
+        # Send confirmation
+        embed = dc.Embed(
+            title="🎵 Przetwarzanie",
+            description=f"Dodaję do kolejki: **{query}**",
+            color=BotConfig.COLORS["info"]
+        )
+        await interaction.followup.send(embed=embed)
+    
+    @dc.app_commands.command(name="queue", description="Pokaż aktualną kolejkę odtwarzania")
+    async def slash_queue(self, interaction: dc.Interaction) -> None:
+        """Slash command version of queue."""
+        await interaction.response.defer()
+        
+        guild_id = interaction.guild.id
+        if self.queue_manager.has_content(guild_id):
+            embed = self._create_queue_embed(guild_id)
+            await interaction.followup.send(embed=embed)
+        else:
+            embed = dc.Embed(
+                title="📋 Kolejka odtwarzania",
+                description="Kolejka jest pusta",
+                color=BotConfig.COLORS["info"]
+            )
+            await interaction.followup.send(embed=embed)
+    
+    @dc.app_commands.command(name="skip", description="Pomiń aktualny utwór")
+    async def slash_skip(self, interaction: dc.Interaction) -> None:
+        """Slash command version of skip."""
+        await interaction.response.defer()
+        
+        guild_id = interaction.guild.id
+        voice_client = self.voice_clients.get(guild_id)
+        
+        if not voice_client:
+            embed = dc.Embed(
+                title="❌ Błąd",
+                description="Bot nie jest połączony z kanałem głosowym",
+                color=BotConfig.COLORS["error"]
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if voice_client.is_playing():
+            voice_client.stop()
+            embed = dc.Embed(
+                title="⏭️ Pominięto",
+                description="Pominięto aktualny utwór",
+                color=BotConfig.COLORS["success"]
+            )
+            await interaction.followup.send(embed=embed)
+        else:
+            embed = dc.Embed(
+                title="❌ Błąd",
+                description="Obecnie nic nie jest odtwarzane",
+                color=BotConfig.COLORS["error"]
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @commands.command(pass_context=True, aliases=["f", "find"])
+    async def find_music(self, ctx: commands.Context, *, query: str) -> None:
+        """Search for music tracks."""
+        username, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "find")
+        if not can_proceed:
+            await ctx.send(f"⚠️ {error_msg}")
+            return
+        
+        results = self.youtube_downloader.search_youtube(query, 5)
+        if not results:
+            await ctx.send("❌ Nie znaleziono wyników.")
+            return
+        
         embed = dc.Embed(
             title="Wybierz link interesującego ciebie utworu:",
-            color=dc.Colour.random(),
+            color=dc.Colour.random()
         )
-        embed.add_field(name="Kto dodał", value=username, inline=True)
-        for i in info:
-            date = str(dt.timedelta(seconds=int(i["duration"])))
+        embed.add_field(name="Kto szukał", value=username, inline=True)
+        
+        for track_info in results:
+            duration_str = str(dt.timedelta(seconds=track_info.get('duration', 0)))
             embed.add_field(
-                name=f"{i['title']}: {date}",
-                value=f"{self.yt_link}{i['id']}",
-                inline=False,
+                name=f"{track_info['title']}: {duration_str}",
+                value=f"{BotConfig.YOUTUBE_BASE_URL}{track_info['id']}",
+                inline=False
             )
+        
         await ctx.send(embed=embed)
-
+    
     @commands.command(pass_context=False, aliases=["pr", "pause", "resume"])
-    async def _zarzadzaj_odtwarzaniem(self, ctx) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "pause")
+    async def pause_resume(self, ctx: commands.Context) -> None:
+        """Pause or resume music playback."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "pause")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        if self.Pl[id] is not None and self.Pl[id].is_playing():
+        
+        voice_client = self.voice_clients.get(guild_id)
+        if not voice_client:
+            await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
+            return
+        
+        if voice_client.is_playing():
+            voice_client.pause()
             await ctx.send("Utwór został wstrzymany.")
-            self.Pl[id].pause()
-        elif self.Pl[id].is_paused():
+        elif voice_client.is_paused():
+            voice_client.resume()
             await ctx.send("Utwór został wznowiony!")
-            self.Pl[id].resume()
         else:
             await ctx.send("Wystąpił błąd! Nie ma czego wstrzymać/wznowić.")
-
+    
     @commands.command(pass_context=True, aliases=["sk", "skip"])
-    async def _pomin(self, ctx, pos: int = 1) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "skip")
+    async def skip_track(self, ctx: commands.Context, position: int = 1) -> None:
+        """Skip to next track or specific position in queue."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "skip")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        if self.Pl[id] is not None and len(self.Qu[id]) >= pos:
-            if self.Pl[id].is_playing():
-                self.Pl[id].stop()
-            await self.play_next(ctx, pos - 1)
-        elif len(self.Qu[id]) < pos:
-            await ctx.send("Kolejka jest pusta.")
-        else:
+        
+        voice_client = self.voice_clients.get(guild_id)
+        if not voice_client:
             await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
-
+            return
+        
+        queue_length = self.queue_manager.get_queue_length(guild_id)
+        if queue_length < position:
+            await ctx.send("Kolejka jest pusta lub pozycja jest nieprawidłowa.")
+            return
+        
+        if voice_client.is_playing():
+            voice_client.stop()
+        
+        await self._play_next_track(ctx, position - 1)
+    
     @commands.command(pass_context=False, aliases=["q", "queue"])
-    async def _kolejka(self, ctx) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-        if id in self.Qu and (self.Qu[id] or self.info[id]):
-            embed = dc.Embed(
-                title="Kolejka odtwarzania:",
-                color=dc.Colour.random(),
-            )
-            if self.info[id]:
-                total_seconds = int(self.info[id]["duration"])
-                # Oblicz, ile sekund już odtworzono
-                if self.Pl[id] and hasattr(self.Pl[id], "source"):
-                    elapsed = getattr(self.Pl[id], "elapsed", 0)
-                else:
-                    elapsed = 0
-
-                progress_bar = self.get_progress_bar(elapsed, total_seconds)
-                elapsed_str = str(dt.timedelta(seconds=int(elapsed)))
-                total_str = str(dt.timedelta(seconds=total_seconds))
-
-                embed.add_field(
-                    name="Aktualnie odtwarzany:",
-                    value="{0}\n{1}\n{2} {3}/{4}\n{5}\n{6}".format(
-                        self.info[id]["title"],
-                        self.info[id]["uploader"],
-                        progress_bar,
-                        elapsed_str,
-                        total_str,
-                        self.info[id]["user"],
-                        f"{self.yt_link}{self.info[id]['id']}",
-                    ),
-                    inline=False,
-                )
-
-            if self.Qu[id]:
-                for i, info in enumerate(self.Qu[id], start=1):
-                    date = str(dt.timedelta(seconds=int(info["duration"])))
-                    embed.add_field(
-                        name=f"Utwór w kolejce: {i}",
-                        value="{0}\n{1}\n{2}\n{3}\n{4}".format(
-                            info["title"],
-                            info["uploader"],
-                            date,
-                            info["user"],
-                            f"{self.yt_link}{info['id']}",
-                        ),
-                        inline=False,
-                    )
+    async def show_queue(self, ctx: commands.Context) -> None:
+        """Display current music queue."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        if self.queue_manager.has_content(guild_id):
+            embed = self._create_queue_embed(guild_id)
             await ctx.send(embed=embed)
         else:
             await ctx.send("Kolejka jest pusta.")
-
+    
     @commands.command(pass_context=True, aliases=["dl", "delete"])
-    async def _usun(self, ctx, pos=None) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "delete")
+    async def delete_from_queue(self, ctx: commands.Context, position: int = None) -> None:
+        """Delete track from queue."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "delete")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        if pos and self.Pl[id] and len(self.Qu[id]) >= int(pos):
-            # Sprawdź, czy użytkownik usuwa własny utwór lub ma uprawnienia administratora
-            track_to_delete = self.Qu[id][int(pos) - 1]
-            is_admin = ctx.author.guild_permissions.administrator
-            is_owner = track_to_delete["user"] == ctx.author.display_name
-
-            if not (is_admin or is_owner):
-                await ctx.send("⚠️ Możesz usuwać tylko swoje utwory z kolejki!")
-                return
-
-            info = self.Qu[id].pop(int(pos) - 1)
-
-            # Aktualizuj licznik utworów użytkownika
-            user_id = self.get_user_id_from_name(info["user"], id)
-            if (
-                user_id
-                and id in self.user_queue_items
-                and user_id in self.user_queue_items[id]
-            ):
-                self.user_queue_items[id][user_id] = max(
-                    0, self.user_queue_items[id][user_id] - 1
-                )
-
-            embed = self.track_embed(
-                text="Usunięto z kolejki",
-                info=info,
-            )
-            await ctx.send(embed=embed)
-        elif pos is None:
+        
+        if position is None:
             await ctx.send("Podaj pozycję do usunięcia!")
-        elif len(self.Qu[id]) < int(pos) or int(pos) < 0:
+            return
+        
+        queue = self.queue_manager.get_queue(guild_id)
+        if not queue or position > len(queue) or position < 1:
             await ctx.send("Wybrałeś zły numer.")
-        else:
-            await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
-
+            return
+        
+        # Check permissions
+        track_to_delete = queue[position - 1]
+        if not UserManager.user_can_modify_track(ctx, track_to_delete.user):
+            await ctx.send("⚠️ Możesz usuwać tylko swoje utwory z kolejki!")
+            return
+        
+        # Remove track
+        removed_track = self.queue_manager.remove_track(guild_id, position - 1)
+        if removed_track:
+            # Update user count
+            user_id = UserManager.get_user_id_from_name(removed_track.user, guild_id, self.bot)
+            if user_id:
+                self.rate_limiter.remove_tracks_from_user_count(user_id, guild_id, 1)
+            
+            embed = self._create_track_embed("Usunięto z kolejki", removed_track)
+            await ctx.send(embed=embed)
+    
     @commands.command(pass_context=False, aliases=["s", "stop"])
-    async def _zatrzymaj(self, ctx) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "stop")
+    async def stop_music(self, ctx: commands.Context) -> None:
+        """Stop music and clear queue."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "stop")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        self.Pl[id].stop()
-        self.Qu[ctx.message.guild.id].clear()
-
-        # Zresetuj liczniki utworów użytkowników
-        if id in self.user_queue_items:
-            self.user_queue_items[id].clear()
-
+        
+        voice_client = self.voice_clients.get(guild_id)
+        if voice_client:
+            voice_client.stop()
+        
+        self.queue_manager.clear_queue(guild_id)
+        self.queue_manager.set_current_track(guild_id, None)
+        self.rate_limiter.clear_user_queue_count(guild_id)
+        
+        await ctx.send("Zatrzymano odtwarzanie i wyczyszczono kolejkę.")
+    
     @commands.command(pass_context=False, aliases=["d", "disconnect"])
-    async def _rozlacz(self, ctx) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "disconnect")
+    async def disconnect_bot(self, ctx: commands.Context) -> None:
+        """Disconnect bot from voice channel."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "disconnect")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-        if self.Pl[id] is not None:
-            self.info[id].clear()
-            await self.Pl[id].disconnect()
-            self.Qu[ctx.message.guild.id].clear()
-
-            # Zresetuj liczniki utworów użytkowników
-            if id in self.user_queue_items:
-                self.user_queue_items[id].clear()
+        
+        voice_client = self.voice_clients.get(guild_id)
+        if voice_client:
+            await voice_client.disconnect()
+            self.queue_manager.clear_queue(guild_id)
+            self.queue_manager.set_current_track(guild_id, None)
+            self.rate_limiter.clear_user_queue_count(guild_id)
+            await ctx.send("Rozłączono z kanału głosowego.")
         else:
             await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
-
+    
     @commands.command(pass_context=True, aliases=["v", "volume"])
-    async def _glosnosc(self, ctx, volume: int = None) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "volume")
+    async def set_volume(self, ctx: commands.Context, volume: int = None) -> None:
+        """Set or display volume."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "volume")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        self.Pl[id] = dc.utils.get(self.bot.voice_clients, guild=ctx.guild)
-
+        
+        voice_client = self.voice_clients.get(guild_id)
+        if not voice_client:
+            await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
+            return
+        
         if volume is None:
-            current_volume = getattr(self.Pl[id], "volume", 100) * 100
+            current_volume = getattr(voice_client, "volume", 1.0) * 100
             await ctx.send(f"Aktualna głośność: {int(current_volume)}%")
             return
-
+        
         if volume < 0 or volume > 200:
             await ctx.send("Głośność musi być między 0 a 200%")
             return
-
-        if self.Pl[id] is not None:
-            self.Pl[id].volume = volume / 100
-            await ctx.send(f"Głośność ustawiona na {volume}%")
-        else:
-            await ctx.send("Bot nie jest połączony z żadnym kanałem głosowym.")
-
+        
+        voice_client.volume = volume / 100
+        await ctx.send(f"Głośność ustawiona na {volume}%")
+    
     @commands.command(pass_context=True, aliases=["l", "lyrics"])
-    async def _tekst(self, ctx) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "lyrics")
+    async def show_lyrics(self, ctx: commands.Context) -> None:
+        """Show lyrics for currently playing track."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "lyrics")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
+        
         if not self.genius:
-            await ctx.send(
-                "❌ Funkcja tekstów jest niedostępna - brak tokenu API Genius."
-            )
+            await ctx.send("❌ Funkcja tekstów jest niedostępna - brak tokenu API Genius.")
             return
-
-        if id in self.info and self.info[id]:
-            title = self.info[id]["title"]
-            try:
-                song = self.genius.search_song(title)
-                if song:
-                    lyrics = song.lyrics
-                    # Podziel tekst na części o długości max 4000 znaków
-                    chunks = [lyrics[i: i + 4000]
-                              for i in range(0, len(lyrics), 4000)]
-
-                    for i, chunk in enumerate(chunks):
-                        embed = dc.Embed(
-                            title=(
-                                f"Tekst: {title}"
-                                if i == 0
-                                else f"Tekst (część {i + 1})"
-                            ),
-                            description=chunk,
-                            color=dc.Colour.random(),
-                        )
-                        await ctx.send(embed=embed)
-                else:
-                    await ctx.send(f"Nie znaleziono tekstu dla: {title}")
-            except Exception as e:
-                await ctx.send(f"Błąd podczas pobierania tekstu: {e}")
-        else:
+        
+        current_track = self.queue_manager.get_current_track(guild_id)
+        if not current_track:
             await ctx.send("Obecnie nic nie jest odtwarzane.")
-
+            return
+        
+        try:
+            song = self.genius.search_song(current_track.title)
+            if song and song.lyrics:
+                # Split lyrics into chunks for Discord message limit
+                lyrics = song.lyrics
+                chunks = [lyrics[i:i + 4000] for i in range(0, len(lyrics), 4000)]
+                
+                for i, chunk in enumerate(chunks):
+                    embed = dc.Embed(
+                        title=(
+                            f"Tekst: {current_track.title}"
+                            if i == 0
+                            else f"Tekst (część {i + 1})"
+                        ),
+                        description=chunk,
+                        color=dc.Colour.random()
+                    )
+                    await ctx.send(embed=embed)
+            else:
+                await ctx.send(f"Nie znaleziono tekstu dla: {current_track.title}")
+        except Exception as e:
+            Logger.log_error(e, "LYRICS")
+            await ctx.send(f"Błąd podczas pobierania tekstu: {e}")
+    
     @commands.command(pass_context=False, aliases=["lp", "loop"])
-    async def _zapetl(self, ctx) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "loop")
+    async def toggle_loop(self, ctx: commands.Context) -> None:
+        """Toggle loop mode for current track."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "loop")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        if id not in self.looping:
-            self.looping[id] = False
-
-        self.looping[id] = not self.looping[id]
-
-        if self.looping[id]:
-            await ctx.send(
-                "🔄 Zapętlanie włączone - aktualny utwór będzie odtwarzany w pętli."
-            )
+        
+        new_status = self.queue_manager.toggle_loop(guild_id)
+        
+        if new_status:
+            await ctx.send("🔄 Zapętlanie włączone - aktualny utwór będzie odtwarzany w pętli.")
         else:
             await ctx.send("▶️ Zapętlanie wyłączone.")
-
+    
     @commands.command(pass_context=True, aliases=["sp", "saveplaylist"])
-    async def _zapisz_playliste(self, ctx, nazwa: str) -> None:
-        username, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "saveplaylist"
-        )
+    async def save_playlist(self, ctx: commands.Context, name: str) -> None:
+        """Save current queue as playlist."""
+        username, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "saveplaylist")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        if id in self.Qu and self.Qu[id]:
-            # Utwórz katalog jeśli nie istnieje
-            if not os.path.exists("./playlists"):
-                os.makedirs("./playlists")
-
-            playlist_data = {
-                "nazwa": nazwa,
-                "utworzony_przez": username,
-                "utworzony_dnia": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "utwory": self.Qu[id],
-            }
-
-            with open(f"./playlists/{nazwa}.json", "w", encoding="utf-8") as f:
-                json.dump(playlist_data, f, ensure_ascii=False, indent=4)
-
-            await ctx.send(
-                f"✅ Playlista '{nazwa}' została zapisana z {
-                    len(self.Qu[id])} utworami."
-            )
-        else:
+        
+        queue = self.queue_manager.get_queue(guild_id)
+        if not queue:
             await ctx.send("❌ Kolejka jest pusta, nie ma czego zapisać.")
-
+            return
+        
+        success = PlaylistManager.save_playlist(name, queue, username)
+        if success:
+            await ctx.send(f"✅ Playlista '{name}' została zapisana z {len(queue)} utworami.")
+        else:
+            await ctx.send(f"❌ Błąd podczas zapisywania playlisty '{name}'.")
+    
     @commands.command(pass_context=True, aliases=["loadp", "loadplaylist"])
-    async def _wczytaj_playliste(self, ctx, nazwa: str) -> None:
-        username, id = await self.get_user_id(ctx=ctx)
-
-        # 1. Sprawdzenie limitów użytkownika
-        can_proceed, error_msg = self.check_user_limits(
-            ctx.author.id, id, "loadplaylist"
-        )
+    async def load_playlist(self, ctx: commands.Context, name: str) -> None:
+        """Load saved playlist."""
+        username, guild_id = await UserManager.get_user_info(ctx)
+        
+        # Check rate limits
+        can_proceed, error_msg = self._check_user_limits(ctx, "loadplaylist")
         if not can_proceed:
             await ctx.send(f"⚠️ {error_msg}")
             return
-
-        playlist_path = f"./playlists/{nazwa}.json"
-        if not os.path.exists(playlist_path):
-            await ctx.send(f"❌ Playlista '{nazwa}' nie istnieje.")
+        
+        playlist_data = PlaylistManager.load_playlist(name)
+        if not playlist_data:
+            await ctx.send(f"❌ Playlista '{name}' nie istnieje.")
             return
-
-        with open(playlist_path, "r", encoding="utf-8") as f:
-            playlist_data = json.load(f)
-
-        utwory = playlist_data["utwory"]
-
-        if utwory:
-            if id not in self.Qu:
-                self.Qu[id] = []
-
-            # Sprawdź, czy użytkownik nie przekroczy limitu dodając playlistę
-            total_tracks = len(utwory)
-            current_tracks = self.user_queue_items[id][ctx.author.id]
-
-            if current_tracks + total_tracks > self.max_queue_per_user:
-                await ctx.send(
-                    f"⚠️ Ta playlista ma {total_tracks} utworów, co przekroczy twój limit {
-                        self.max_queue_per_user}. Dodano tylko pierwsze {self.max_queue_per_user - current_tracks}."
-                )
-                # Dodaj tylko tyle utworów, ile możliwe w limicie
-                for i, utwór in enumerate(utwory):
-                    if i < (self.max_queue_per_user - current_tracks):
-                        utwór["user"] = (
-                            username  # Zaktualizuj użytkownika do aktualnego
-                        )
-                        self.Qu[id].append(utwór)
-                        self.user_queue_items[id][ctx.author.id] += 1
-                    else:
-                        break
-            else:
-                for utwór in utwory:
-                    # Zaktualizuj użytkownika do aktualnego
-                    utwór["user"] = username
-                    self.Qu[id].append(utwór)
-                    self.user_queue_items[id][ctx.author.id] += 1
-
-            embed = dc.Embed(
-                title=f"Wczytano playlistę: {nazwa}",
-                description=f"Dodano {
-                    min(total_tracks, self.max_queue_per_user - current_tracks)} utworów do kolejki.",
-                color=dc.Colour.green(),
-            )
-            embed.add_field(
-                name="Utworzona przez",
-                value=playlist_data["utworzony_przez"],
-                inline=True,
-            )
-            embed.add_field(
-                name="Data utworzenia",
-                value=playlist_data["utworzony_dnia"],
-                inline=True,
-            )
-
-            await ctx.send(embed=embed)
-
-            if ctx.author.voice:
-                self.Pl[id] = await self.get_vc(ctx=ctx, vs=ctx.author.voice)
-                if not self.Pl[id].is_playing():
-                    await self.play_next(ctx=ctx)
-            else:
-                await ctx.send("Dołącz do kanału głosowego, aby rozpocząć odtwarzanie.")
-        else:
+        
+        tracks = playlist_data["utwory"]
+        if not tracks:
             await ctx.send("❌ Playlista jest pusta.")
-
-    @commands.command(pass_context=False, aliases=["pl", "playlists"])
-    async def _playlisty(self, ctx) -> None:
-        await self.get_user_id(ctx=ctx)
-
-        if not os.path.exists("./playlists"):
-            await ctx.send("❌ Nie znaleziono żadnych zapisanych playlist.")
             return
-
-        playlists = [f for f in os.listdir(
-            "./playlists") if f.endswith(".json")]
-
+        
+        # Check user limits
+        can_add_all, max_addable = self.rate_limiter.can_add_tracks(
+            ctx.author.id, guild_id, len(tracks)
+        )
+        
+        # Update track ownership to current user
+        tracks_to_add = tracks[:max_addable] if not can_add_all else tracks
+        for track in tracks_to_add:
+            track.user = username
+        
+        # Add tracks to queue
+        self.queue_manager.add_tracks(guild_id, tracks_to_add)
+        self.rate_limiter.add_tracks_to_user_count(ctx.author.id, guild_id, len(tracks_to_add))
+        
+        # Send confirmation
+        embed = dc.Embed(
+            title=f"Wczytano playlistę: {name}",
+            description=f"Dodano {len(tracks_to_add)} utworów do kolejki.",
+            color=BotConfig.COLORS["success"]
+        )
+        embed.add_field(name="Utworzona przez", value=playlist_data["utworzony_przez"], inline=True)
+        embed.add_field(name="Data utworzenia", value=playlist_data["utworzony_dnia"], inline=True)
+        
+        if not can_add_all:
+            embed.add_field(
+                name="Uwaga",
+                value=f"Dodano tylko {len(tracks_to_add)} z {len(tracks)} utworów (limit użytkownika)",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+        
+        # Start playing if needed
+        if ctx.author.voice:
+            voice_client = await self._get_voice_client(ctx)
+            if voice_client and not voice_client.is_playing():
+                await self._play_next_track(ctx)
+        else:
+            await ctx.send("Dołącz do kanału głosowego, aby rozpocząć odtwarzanie.")
+    
+    @commands.command(pass_context=False, aliases=["pl", "playlists"])
+    async def list_playlists(self, ctx: commands.Context) -> None:
+        """List all saved playlists."""
+        await UserManager.get_user_info(ctx)
+        
+        playlists = PlaylistManager.get_playlist_list()
         if not playlists:
             await ctx.send("❌ Nie znaleziono żadnych zapisanych playlist.")
             return
-
-        embed = dc.Embed(title="Zapisane playlisty", color=dc.Colour.blue())
-
+        
+        embed = dc.Embed(title="Zapisane playlisty", color=BotConfig.COLORS["info"])
+        
         for playlist in playlists:
-            nazwa = playlist.replace(".json", "")
-            with open(f"./playlists/{playlist}", "r", encoding="utf-8") as f:
-                data = json.load(f)
-
             embed.add_field(
-                name=nazwa,
-                value=f"Utworów: {len(data['utwory'])}\nUtworzył: {
-                    data['utworzony_przez']}\nData: {data['utworzony_dnia']}",
-                inline=False,
+                name=playlist["name"],
+                value=f"Utworów: {playlist['track_count']}\nUtworzył: {playlist['creator']}\nData: {playlist['created_date']}",
+                inline=False
             )
-
+        
         await ctx.send(embed=embed)
-
-    # 6. Komenda do włączania/wyłączania automatycznego dobierania podobnych utworów
+    
     @commands.command(aliases=["autodj", "similar"])
-    async def _autoodtwarzanie(self, ctx, enabled: bool = None) -> None:
-        _, id = await self.get_user_id(ctx=ctx)
-
-        if not hasattr(self, "auto_dj_enabled"):
-            self.auto_dj_enabled = {}
-
+    async def toggle_auto_dj(self, ctx: commands.Context, enabled: bool = None) -> None:
+        """Toggle AutoDJ (automatic similar track addition)."""
+        _, guild_id = await UserManager.get_user_info(ctx)
+        
         if enabled is None:
-            # Przełącz stan
-            self.auto_dj_enabled[id] = not self.auto_dj_enabled.get(id, True)
+            # Toggle current state
+            self.auto_dj_enabled[guild_id] = not self.auto_dj_enabled.get(guild_id, True)
         else:
-            # Ustaw określony stan
-            self.auto_dj_enabled[id] = enabled
-
-        if self.auto_dj_enabled[id]:
-            await ctx.send(
-                "🎧 AutoDJ włączony - automatycznie dodam podobne utwory, gdy kolejka będzie się kończyć."
-            )
+            # Set specific state
+            self.auto_dj_enabled[guild_id] = enabled
+        
+        if self.auto_dj_enabled[guild_id]:
+            await ctx.send("🎧 AutoDJ włączony - automatycznie dodam podobne utwory, gdy kolejka będzie się kończyć.")
         else:
             await ctx.send("⏹️ AutoDJ wyłączony - nie będę dodawać podobnych utworów.")
-
+    
     @commands.Cog.listener()
-    async def on_command_error(self, ctx, error):
+    async def on_command_error(self, ctx: commands.Context, error: Exception) -> None:
+        """Handle command errors with improved logging."""
         if isinstance(error, commands.CommandInvokeError):
             error = error.original
-
+        
         if isinstance(error, commands.MissingRequiredArgument):
             await ctx.send(f"❌ Brakujący argument: {error.param.name}")
         elif isinstance(error, commands.BadArgument):
             await ctx.send(f"❌ Nieprawidłowy argument: {error}")
         elif isinstance(error, commands.CommandNotFound):
-            # Ignoruj nieznane komendy
+            # Ignore unknown commands
             pass
         elif isinstance(error, commands.CheckFailure):
             await ctx.send("❌ Nie masz uprawnień do używania tej komendy.")
         else:
             await ctx.send(f"❌ Wystąpił błąd: {error}")
-
-            # Log błędów do pliku
-            if not os.path.exists("./logs"):
-                os.makedirs("./logs")
-
-            with open("./logs/errors.log", "a", encoding="utf-8") as f:
-                f.write(f"{dt.datetime.now()}: {error}\n")
+            Logger.log_error(error, f"COMMAND_ERROR: {ctx.command}")

@@ -1,10 +1,53 @@
+# Audio files
 *.webm
+*.mp3
+*.mp4
+*.m4a
+
+# Environment and config
 .env
-venv
-.venv
+.env.*
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Test files
 *test*
-downloads
-files
-playlist
-logs
-__pycache__
+test_*
+*_test.py
+quick_test.py
+
+# Bot runtime files
+downloads/
+files/
+playlists/
+logs/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*_old.py
+*_backup.*
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
