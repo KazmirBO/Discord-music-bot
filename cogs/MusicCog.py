@@ -202,11 +202,25 @@ class MusicCog(commands.Cog):
             
             track_info = self.youtube_downloader.get_track_info(url_or_query)
             if not track_info:
-                error_embed = dc.Embed(
-                    title="❌ Błąd",
-                    description="Nie udało się pobrać informacji o utworze. Sprawdź czy link jest poprawny.",
-                    color=BotConfig.COLORS["error"]
-                )
+                # Check if this might be a YouTube bot detection issue
+                if "youtube.com" in url_or_query or "youtu.be" in url_or_query:
+                    error_embed = dc.Embed(
+                        title="🤖 YouTube zablokował dostęp",
+                        description=(
+                            "YouTube wykrył automatyczne pobieranie i zablokował dostęp.\n\n"
+                            "**Możliwe rozwiązania:**\n"
+                            "• Spróbuj ponownie za kilka minut\n"
+                            "• Użyj innego utworu z YouTube\n"
+                            "• Wklej tytuł utworu zamiast linku (wyszukiwanie)"
+                        ),
+                        color=BotConfig.COLORS["warning"]
+                    )
+                else:
+                    error_embed = dc.Embed(
+                        title="❌ Błąd",
+                        description="Nie udało się pobrać informacji o utworze. Sprawdź czy link jest poprawny.",
+                        color=BotConfig.COLORS["error"]
+                    )
                 await processing_msg.edit(embed=error_embed)
                 return
             

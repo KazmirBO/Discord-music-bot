@@ -35,7 +35,7 @@ class YouTubeDownloader:
         return pattern.match(text) is not None
     
     def extract_info(self, url: str, download: bool = True) -> Optional[Dict[str, Any]]:
-        """Extract information from URL with improved error handling."""
+        """Extract information from URL with improved error handling and fallback mechanisms."""
         try:
             Logger.log_info(f"Extracting {'with download' if download else 'metadata only'}: {url}", "YOUTUBE")
             result = self.ydl.extract_info(url, download=download)
@@ -43,8 +43,74 @@ class YouTubeDownloader:
                 Logger.log_info(f"Successfully extracted: {result.get('title', 'Unknown')}", "YOUTUBE")
             return result
         except Exception as e:
+            error_msg = str(e).lower()
+            
+            # Check if it's a bot detection error
+            if "sign in to confirm" in error_msg or "not a bot" in error_msg:
+                Logger.log_warning("YouTube bot detection triggered, trying fallback method", "YOUTUBE")
+                return self._try_fallback_extraction(url, download)
+            
+            # Check if it's a private/unavailable video
+            elif "private video" in error_msg or "unavailable" in error_msg:
+                Logger.log_warning(f"Video unavailable: {url}", "YOUTUBE")
+                return None
+            
             Logger.log_error(e, f"YOUTUBE_EXTRACT: {url}")
             return None
+    
+    def _try_fallback_extraction(self, url: str, download: bool = True) -> Optional[Dict[str, Any]]:
+        """Try alternative extraction methods when bot detection is triggered."""
+        try:
+            # Create a new YDL instance with different options
+            fallback_opts = BotConfig.YDL_OPTS.copy()
+            
+            # Use more flexible format selection for fallback
+            fallback_opts["format"] = "worst[height<=360]/worstaudio/worst"
+            
+            # Use Android client as primary
+            fallback_opts["extractor_args"] = {
+                "youtube": {
+                    "player_client": ["android", "web_creator", "tv_embedded"],
+                    "player_skip": ["webpage"],
+                }
+            }
+            
+            # Add more delays
+            fallback_opts["sleep_interval"] = 1
+            fallback_opts["sleep_interval_requests"] = 0.5
+            
+            with yt_dlp.YoutubeDL(fallback_opts) as fallback_ydl:
+                Logger.log_info(f"Fallback extraction attempt: {url}", "YOUTUBE")
+                result = fallback_ydl.extract_info(url, download=download)
+                if result:
+                    Logger.log_info(f"Fallback successful: {result.get('title', 'Unknown')}", "YOUTUBE")
+                return result
+                
+        except Exception as e:
+            Logger.log_error(e, f"YOUTUBE_FALLBACK: {url}")
+            
+            # Try one more time with the most basic format
+            try:
+                basic_opts = {
+                    "format": "worst",
+                    "outtmpl": BotConfig.YDL_OPTS["outtmpl"],
+                    "quiet": True,
+                    "extractor_args": {
+                        "youtube": {
+                            "player_client": ["android"],
+                        }
+                    }
+                }
+                
+                with yt_dlp.YoutubeDL(basic_opts) as basic_ydl:
+                    Logger.log_info(f"Basic fallback attempt: {url}", "YOUTUBE")
+                    result = basic_ydl.extract_info(url, download=download)
+                    if result:
+                        Logger.log_info(f"Basic fallback successful: {result.get('title', 'Unknown')}", "YOUTUBE")
+                    return result
+            except Exception as final_e:
+                Logger.log_error(final_e, f"YOUTUBE_BASIC_FALLBACK: {url}")
+                return None
     
     def search_youtube(self, query: str, max_results: int = 1) -> Optional[List[Dict[str, Any]]]:
         """

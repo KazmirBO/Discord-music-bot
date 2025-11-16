@@ -26,9 +26,9 @@ class BotConfig:
     PLAYLISTS_DIR = "./playlists"
     LOGS_DIR = "./logs"
     
-    # Audio Configuration - Simplified for reliability
+    # Audio Configuration - With YouTube authentication bypass and flexible format
     YDL_OPTS: Dict[str, Any] = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=webm]/bestaudio[ext=mp4]/bestaudio/best[height<=480]/best",
         "outtmpl": f"{FILES_DIR}/%(id)s.%(ext)s",
         "restrictfilenames": True,
         "noplaylist": True,
@@ -37,12 +37,26 @@ class BotConfig:
         "quiet": True,
         "no_warnings": True,
         "default_search": "auto",
-        # Basic retry logic
-        "extractor_retries": 3,
-        "fragment_retries": 3,
-        # Modern user agent
+        # Enhanced retry logic
+        "extractor_retries": 5,
+        "fragment_retries": 5,
+        "socket_timeout": 30,
+        # Enhanced headers to bypass bot detection
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+        },
+        # YouTube specific options to bypass bot detection
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+                "player_skip": ["webpage"],
+            }
         },
     }
     
